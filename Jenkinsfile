@@ -37,7 +37,13 @@ pipeline {
         stage('Verify Odoo 17 Version') {
             steps {
                 sh '''
-                echo "Checking Odoo 17 version..."
+                echo "Waiting for Odoo 17 DB to be ready..."
+                until docker exec ${ODOO17_WEB} odoo --stop-after-init &>/dev/null; do
+                    echo "Odoo 17 not ready yet, sleeping 10s..."
+                    sleep 10
+                done
+
+                echo "Odoo 17 version:"
                 docker exec ${ODOO17_WEB} odoo --version
 
                 echo "Checking DB base module version..."
