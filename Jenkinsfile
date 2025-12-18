@@ -32,7 +32,7 @@ pipeline {
         }
 
         /* -------------------- STAGE 2 -------------------- */
-        stage('Wait for PostgreSQL & Initialize Odoo 17 DB') {
+        stage('Wait for PostgreSQL & Initialize Odoo 17 DB (All Modules)') {
             steps {
                 sh '''
                 echo "Waiting for PostgreSQL to be ready..."
@@ -42,10 +42,10 @@ pipeline {
                 done
                 echo "PostgreSQL is ready."
 
-                echo "Initializing Odoo 17 DB (base module)..."
-                docker exec ${ODOO17_WEB} odoo -i base --db_host=db --db_user=${DB_USER} --db_password=${DB_PASS} --stop-after-init
+                echo "Initializing Odoo 17 DB with all modules..."
+                docker exec ${ODOO17_WEB} odoo -d ${ODOO17_DB} --stop-after-init -i base,web,mail,board,account,stock,sale,purchase
 
-                echo "Odoo 17 initialized successfully."
+                echo "Odoo 17 fully initialized."
                 docker exec ${ODOO17_WEB} odoo --version
                 '''
             }
