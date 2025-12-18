@@ -22,12 +22,19 @@ services:
       - DB_PORT=5432
       - DB_USER=odoo
       - DB_PASSWORD=odoo
-      - ODOO_DB=odoo18_db  # optional, helps Odoo know which DB to use
+      - ODOO_DB=odoo18_db
     ports:
       - "8072:8069"
     volumes:
       - ./custom-addons:/mnt/extra-addons
-    command: odoo -d odoo18_db --load-language=en_US  # ensures it tries to start with the correct DB
+    command: >
+      odoo
+      -d odoo18_db
+      --db_host=openupgrade-db
+      --db_port=5432
+      --db_user=odoo
+      --db_password=odoo
+      --stop-after-init
 
 volumes:
   openupgrade-db-data:
