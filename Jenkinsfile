@@ -27,7 +27,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Starting Odoo 17 pod..."
-                docker-compose -f docker-compose-odoo17.yml up -d
+                docker-compose -f docker/docker-compose-odoo17.yml up -d
                 sleep 30
                 '''
             }
@@ -75,7 +75,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Starting Odoo 18 pod..."
-                docker-compose -f docker-compose-odoo18.yml up -d
+                docker-compose -f docker/docker-compose-odoo18.yml up -d
                 sleep 30
                 '''
             }
