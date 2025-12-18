@@ -1,27 +1,27 @@
 version: '3.8'
 
 services:
-  openupgrade-db:
+  db:
     image: postgres:15
-    container_name: docker_openupgrade-db_1
+    container_name: odoo18-db
     environment:
       POSTGRES_USER: odoo
       POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: odoo18_db
     ports:
       - "5433:5432"
     volumes:
-      - openupgrade-db-data:/var/lib/postgresql/data
+      - odoo18-db:/var/lib/postgresql/data
 
-  openupgrade-web:
+  web:
     image: odoo:18
-    container_name: docker_openupgrade-web_1
+    container_name: odoo18-web
     depends_on:
-      - openupgrade-db
+      - db
     ports:
       - "8072:8069"
     environment:
-      # Odoo 18 reads these as default db params
-      HOST: openupgrade-db
+      HOST: db
       USER: odoo
       PASSWORD: odoo
       DB_NAME: odoo18_db
@@ -30,11 +30,11 @@ services:
     command: >
       odoo
       -d odoo18_db
-      --db_host=openupgrade-db
+      --db_host=db
       --db_port=5432
       --db_user=odoo
       --db_password=odoo
       --stop-after-init
 
 volumes:
-  openupgrade-db-data:
+  odoo18-db:
