@@ -3,7 +3,6 @@ pipeline {
 
     options {
         timestamps()
-        //ansiColor('xterm')
     }
 
     environment {
@@ -28,29 +27,26 @@ pipeline {
                 sh '''
                 echo "Starting Odoo 17 pod..."
                 docker-compose -f docker/docker-compose-odoo17.yml up -d
-                sleep 30
                 '''
             }
         }
 
         /* -------------------- STAGE 2 -------------------- */
-        stage('Initialize & Verify Odoo 17 Database') {
+        stage('Wait for PostgreSQL & Initialize Odoo 17 DB') {
             steps {
                 sh '''
-                echo "Initializing Odoo 17 DB (all modules)..."
-
-                # Run Odoo 17 once to initialize entire DB
-                until docker exec ${ODOO17_WEB} odoo -d ${ODOO17_DB} --stop-after-init &>/dev/null; do
-                    echo "Odoo 17 DB not ready yet, sleeping 10s..."
-                    sleep 10
+                echo "Waiting for PostgreSQL to be ready..."
+                until docker exec ${ODOO17_DB_CONT} pg_isready -U ${DB_USER} &>/dev/null; do
+                    echo "PostgreSQL not ready yet, sleeping 5s..."
+                    sleep 5
                 done
+                echo "PostgreSQL is ready."
+
+                echo "Initializing Odoo 17 DB (base module)..."
+                docker exec ${ODOO17_WEB} odoo -i base --db_host=db --db_user=${DB_USER} --db_password=${DB_PASS} --stop-after-init
 
                 echo "Odoo 17 initialized successfully."
                 docker exec ${ODOO17_WEB} odoo --version
-
-                echo "Listing all modules in DB:"
-                docker exec ${ODOO17_DB_CONT} psql -U ${DB_USER} -d ${ODOO17_DB} \
-                  -c "SELECT name, latest_version FROM ir_module_module ORDER BY name;" || true
                 '''
             }
         }
@@ -60,9 +56,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Dumping Odoo 17 DB..."
-                docker exec ${ODOO17_DB_CONT} pg_dump \
-                  -U ${DB_USER} -F c ${ODOO17_DB} > odoo17.dump
-
+                docker exec ${ODOO17_DB_CONT} pg_dump -U ${DB_USER} -F c ${ODOO17_DB} > odoo17.dump
                 ls -lh odoo17.dump
                 '''
             }
@@ -84,22 +78,26 @@ pipeline {
                 sh '''
                 echo "Starting Odoo 18 pod..."
                 docker-compose -f docker/docker-compose-odoo18.yml up -d
-                sleep 30
                 '''
             }
         }
 
         /* -------------------- STAGE 6 -------------------- */
-        stage('Restore DB into Odoo 18') {
+        stage('Wait for PostgreSQL & Restore DB into Odoo 18') {
             steps {
                 sh '''
-                echo "Restoring DB into Odoo 18..."
+                echo "Waiting for PostgreSQL to be ready..."
+                until docker exec ${ODOO18_DB_CONT} pg_isready -U ${DB_USER} &>/dev/null; do
+                    echo "PostgreSQL not ready yet, sleeping 5s..."
+                    sleep 5
+                done
+                echo "PostgreSQL is ready."
 
+                echo "Restoring DB into Odoo 18..."
                 docker exec ${ODOO18_DB_CONT} dropdb -U ${DB_USER} ${ODOO18_DB} || true
                 docker exec ${ODOO18_DB_CONT} createdb -U ${DB_USER} ${ODOO18_DB}
 
-                docker exec -i ${ODOO18_DB_CONT} pg_restore \
-                  -U ${DB_USER} -d ${ODOO18_DB} < odoo17.dump
+                docker exec -i ${ODOO18_DB_CONT} pg_restore -U ${DB_USER} -d ${ODOO18_DB} < odoo17.dump
                 '''
             }
         }
@@ -109,7 +107,6 @@ pipeline {
             steps {
                 sh '''
                 echo "Running OpenUpgrade..."
-
                 docker exec ${ODOO18_WEB} python odoo-bin \
                   -d ${ODOO18_DB} \
                   --upgrade-path=/mnt/openupgrade/openupgrade_scripts/scripts \
