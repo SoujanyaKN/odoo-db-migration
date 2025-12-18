@@ -1,0 +1,24 @@
+version: '3'
+
+services:
+  openupgrade-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+    ports:
+      - "5433:5432"
+    volumes:
+      - openupgrade-db-data:/var/lib/postgresql/data
+
+  openupgrade-web:
+    image: odoo:18
+    depends_on:
+      - openupgrade-db
+    ports:
+      - "8072:8069"
+    volumes:
+      - ./custom-addons:/mnt/extra-addons
+
+volumes:
+  openupgrade-db-data:
