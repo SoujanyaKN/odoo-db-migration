@@ -22,6 +22,7 @@ services:
       - DB_PORT=5432
       - DB_USER=odoo
       - DB_PASSWORD=odoo
+      - ODOO_DB=odoo18_db   # optional, helps Odoo know which DB to use
     ports:
       - "8072:8069"
     volumes:
