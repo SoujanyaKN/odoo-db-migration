@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15
@@ -35,6 +33,3 @@ services:
       --db_user=odoo
       --db_password=odoo
       --stop-after-init
-
-volumes:
-  odoo18-db:
