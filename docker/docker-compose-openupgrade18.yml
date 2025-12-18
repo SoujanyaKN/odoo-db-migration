@@ -2,6 +2,7 @@ version: '3'
 
 services:
   openupgrade-db:
+    container_name: docker_openupgrade-db_1
     image: postgres:15
     environment:
       POSTGRES_USER: odoo
@@ -12,14 +13,15 @@ services:
       - openupgrade-db-data:/var/lib/postgresql/data
 
   openupgrade-web:
+    container_name: docker_openupgrade-web_1
     image: odoo:18
     depends_on:
       - openupgrade-db
     environment:
       - DB_HOST=openupgrade-db
+      - DB_PORT=5432
       - DB_USER=odoo
       - DB_PASSWORD=odoo
-      - DB_PORT=5432
     ports:
       - "8072:8069"
     volumes:
