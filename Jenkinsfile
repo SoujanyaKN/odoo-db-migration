@@ -34,21 +34,22 @@ pipeline {
         }
 
         /* -------------------- STAGE 2 -------------------- */
-        stage('Verify Odoo 17 Version') {
+        stage('Initialize & Verify Odoo 17 Database') {
             steps {
                 sh '''
-                echo "Waiting for Odoo 17 DB to be ready..."
-                until docker exec ${ODOO17_WEB} odoo --stop-after-init &>/dev/null; do
-                    echo "Odoo 17 not ready yet, sleeping 10s..."
+                echo "Initializing Odoo 17 DB (all modules)..."
+                # Run Odoo 17 once to initialize entire DB
+                until docker exec ${ODOO17_WEB} python odoo-bin -d ${ODOO17_DB} --stop-after-init &>/dev/null; do
+                    echo "Odoo 17 DB not ready yet, sleeping 10s..."
                     sleep 10
                 done
 
-                echo "Odoo 17 version:"
+                echo "Odoo 17 initialized successfully."
                 docker exec ${ODOO17_WEB} odoo --version
 
-                echo "Checking DB base module version..."
+                echo "Listing all modules in DB:"
                 docker exec ${ODOO17_DB_CONT} psql -U ${DB_USER} -d ${ODOO17_DB} \
-                  -c "SELECT latest_version FROM ir_module_module WHERE name='base';"
+                  -c "SELECT name, latest_version FROM ir_module_module ORDER BY name;"
                 '''
             }
         }
@@ -71,7 +72,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Stopping Odoo 17 pod..."
-                docker-compose -f docker-compose-odoo17.yml down
+                docker-compose -f docker/docker-compose-odoo17.yml down
                 '''
             }
         }
