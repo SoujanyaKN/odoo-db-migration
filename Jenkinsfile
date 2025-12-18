@@ -38,8 +38,9 @@ pipeline {
             steps {
                 sh '''
                 echo "Initializing Odoo 17 DB (all modules)..."
+
                 # Run Odoo 17 once to initialize entire DB
-                until docker exec ${ODOO17_WEB} python odoo-bin -d ${ODOO17_DB} --stop-after-init &>/dev/null; do
+                until docker exec ${ODOO17_WEB} odoo -d ${ODOO17_DB} --stop-after-init &>/dev/null; do
                     echo "Odoo 17 DB not ready yet, sleeping 10s..."
                     sleep 10
                 done
@@ -49,7 +50,7 @@ pipeline {
 
                 echo "Listing all modules in DB:"
                 docker exec ${ODOO17_DB_CONT} psql -U ${DB_USER} -d ${ODOO17_DB} \
-                  -c "SELECT name, latest_version FROM ir_module_module ORDER BY name;"
+                  -c "SELECT name, latest_version FROM ir_module_module ORDER BY name;" || true
                 '''
             }
         }
@@ -126,9 +127,9 @@ pipeline {
                 echo "Checking Odoo 18 version..."
                 docker exec ${ODOO18_WEB} odoo --version
 
-                echo "Checking DB base module version..."
+                echo "Listing all modules in Odoo 18 DB:"
                 docker exec ${ODOO18_DB_CONT} psql -U ${DB_USER} -d ${ODOO18_DB} \
-                  -c "SELECT latest_version FROM ir_module_module WHERE name='base';"
+                  -c "SELECT name, latest_version FROM ir_module_module ORDER BY name;" || true
                 '''
             }
         }
