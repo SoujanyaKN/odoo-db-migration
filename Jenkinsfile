@@ -23,6 +23,18 @@ pipeline {
     }
 
     stages {
+        stage('Cleanup Old Containers & Volumes') {
+            steps {
+                sh '''
+                echo "Removing old Odoo containers and volumes if any..."
+                docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
+                docker volume rm odoo17-db odoo18-db || true
+                docker system prune -af --volumes
+                df -h
+                '''
+            }
+        }
+
         stage('Checkout SCM') {
             steps {
                 checkout scm
@@ -63,16 +75,17 @@ pipeline {
             steps {
                 sh '''
                 echo "Dumping Odoo 17 database..."
-                docker exec ${ODOO17_DB_HOST} pg_dump -U ${DB_USER} -F c ${ODOO17_DB} > ${ODOO17_DUMP}
+                docker exec ${ODOO17_DB_HOST} pg_dump -U ${DB_USER} -F c ${ODOO17_DB} -f /tmp/${ODOO17_DUMP}
+                docker cp ${ODOO17_DB_HOST}:/tmp/${ODOO17_DUMP} ${ODOO17_DUMP}
                 ls -lh ${ODOO17_DUMP}
                 '''
             }
         }
 
-        stage('Stop & Clean Odoo 17 (Free Disk Space)') {
+        stage('Stop & Clean Odoo 17') {
             steps {
                 sh '''
-                echo "Stopping Odoo 17 containers and freeing disk space..."
+                echo "Stopping Odoo 17 containers..."
                 docker-compose -f docker/docker-compose-odoo17.yml down -v
                 docker system prune -af --volumes
                 df -h
@@ -103,19 +116,13 @@ pipeline {
         stage('Restore Dump into Odoo 18') {
             steps {
                 sh '''
-                echo "Checking if Odoo 18 DB is empty..."
-                COUNT=$(docker exec ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public';")
-                if [ "$COUNT" -eq "0" ]; then
-                    echo "Odoo 18 DB is empty, skipping restore."
-                else
-                    echo "Restoring Odoo 17 dump into Odoo 18 DB..."
-                    docker exec -i ${ODOO18_DB_HOST} pg_restore \
-                        -U ${DB_USER} \
-                        -d ${ODOO18_DB} \
-                        --clean \
-                        --if-exists \
-                        < ${ODOO17_DUMP} || true
-                fi
+                echo "Restoring Odoo 17 dump into Odoo 18 DB..."
+                docker exec -i ${ODOO18_DB_HOST} pg_restore \
+                    -U ${DB_USER} \
+                    -d ${ODOO18_DB} \
+                    --clean \
+                    --if-exists \
+                    < ${ODOO17_DUMP} || true
                 '''
             }
         }
@@ -144,6 +151,7 @@ pipeline {
             echo "Final cleanup: stopping containers"
             docker-compose -f docker/docker-compose-odoo17.yml down || true
             docker-compose -f docker/docker-compose-odoo18.yml down || true
+            docker system prune -af --volumes
             '''
         }
 
