@@ -136,6 +136,7 @@ pipeline {
                       --db_password=${DB_PASSWORD} \
                       --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
                       -u base \
+                      --without-demo=all \
                       --stop-after-init
                 '''
             }
@@ -153,6 +154,7 @@ pipeline {
                       --db_password=${DB_PASSWORD} \
                       --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
                       -u web,mail,account,stock,sale,purchase \
+                      --without-demo=all \
                       --stop-after-init
                 '''
             }
