@@ -1,6 +1,6 @@
 pipeline {
     agent any
-    options {
+    options { 
         timestamps()
     }
 
@@ -41,7 +41,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Waiting for Odoo 17 PostgreSQL..."
-                until docker exec odoo17-db pg_isready -U ${DB_USER} -h localhost -p ${DB_PORT}; do
+                until docker exec odoo17-db pg_isready -U ${DB_USER} -h odoo17-db -p ${DB_PORT}; do
                     sleep 5
                 done
 
@@ -49,7 +49,7 @@ pipeline {
                 docker exec odoo17-web odoo \
                     -d ${ODOO17_DB} \
                     -i base,web,mail,account,stock,sale,purchase \
-                    --db_host=localhost \
+                    --db_host=odoo17-db \
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
@@ -74,10 +74,10 @@ pipeline {
         }
 
         /* ---------------------------------------------------------- */
-        stage('Stop & Clean Odoo 17 (FREE DISK SPACE)') {
+        stage('Stop & Clean Odoo 17 (Free Disk Space)') {
             steps {
                 sh '''
-                echo "Stopping Odoo 17 containers and removing volumes..."
+                echo "Stopping Odoo 17 containers and freeing disk space..."
                 docker-compose -f docker/docker-compose-odoo17.yml down -v
                 docker system prune -f
                 df -h
@@ -100,7 +100,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Waiting for Odoo 18 PostgreSQL..."
-                until docker exec odoo18-db pg_isready -U ${DB_USER} -h localhost -p ${DB_PORT}; do
+                until docker exec odoo18-db pg_isready -U ${DB_USER} -h odoo18-db -p ${DB_PORT}; do
                     sleep 5
                 done
                 '''
@@ -125,11 +125,11 @@ pipeline {
         stage('Run OpenUpgrade Migration') {
             steps {
                 sh '''
-                echo "Running OpenUpgrade migration..."
+                echo "Running OpenUpgrade migration on Odoo 18..."
                 docker exec odoo18-web odoo \
                     -d ${ODOO18_DB} \
                     -u all \
-                    --db_host=localhost \
+                    --db_host=odoo18-db \
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
@@ -144,8 +144,10 @@ pipeline {
     post {
         always {
             sh '''
-            echo "Final cleanup: stopping containers"
+            echo "Final cleanup: stopping all containers..."
+            docker-compose -f docker/docker-compose-odoo17.yml down || true
             docker-compose -f docker/docker-compose-odoo18.yml down || true
+            docker system prune -f
             '''
         }
 
