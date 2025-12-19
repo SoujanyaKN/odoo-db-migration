@@ -3,25 +3,25 @@ pipeline {
     options { 
         timestamps()
     }
-
+ 
     environment {
         // ---------- Database credentials ----------
         DB_USER     = 'odoo'
         DB_PASSWORD = 'odoo'
         DB_PORT     = '5432'
-
+ 
         // ---------- Database hosts ----------
         ODOO17_DB_HOST = 'odoo17-db'
         ODOO18_DB_HOST = 'odoo18-db'
-
+ 
         // ---------- Databases ----------
         ODOO17_DB = 'odoo17_db'
         ODOO18_DB = 'odoo18_db'
-
+ 
         // ---------- Dump ----------
         ODOO17_DUMP = 'odoo17.dump'
     }
-
+ 
     stages {
         stage('Cleanup Old Containers & Volumes') {
             steps {
@@ -34,13 +34,13 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Checkout SCM') {
             steps {
                 checkout scm
             }
         }
-
+ 
         stage('Start Odoo 17 Pod') {
             steps {
                 sh '''
@@ -49,7 +49,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Wait & Initialize Odoo 17 DB') {
             steps {
                 sh '''
@@ -57,7 +57,7 @@ pipeline {
                 until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER} -h ${ODOO17_DB_HOST} -p ${DB_PORT}; do
                     sleep 5
                 done
-
+ 
                 echo "Initializing Odoo 17 database with core modules..."
                 docker exec odoo17-web odoo \
                     -d ${ODOO17_DB} \
@@ -70,7 +70,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Dump Odoo 17 Database') {
             steps {
                 sh '''
@@ -81,7 +81,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Stop & Clean Odoo 17') {
             steps {
                 sh '''
@@ -93,6 +93,22 @@ pipeline {
             }
         }
 
+        // ---------- NEW STAGE TO ENSURE OPENUPGRADE ----------
+        stage('Prepare OpenUpgrade 18') {
+            steps {
+                sh '''
+                echo "Checking OpenUpgrade 18.0..."
+                if [ ! -d "docker/OpenUpgrade-18.0" ]; then
+                    echo "Cloning OpenUpgrade 18.0..."
+                    git clone --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
+                else
+                    echo "OpenUpgrade 18.0 already exists."
+                fi
+                ls -lh docker/OpenUpgrade-18.0
+                '''
+            }
+        }
+ 
         stage('Start Odoo 18 Pod') {
             steps {
                 sh '''
@@ -101,7 +117,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Wait for Odoo 18 DB') {
             steps {
                 sh '''
@@ -112,7 +128,7 @@ pipeline {
                 '''
             }
         }
-
+ 
         stage('Restore Dump into Odoo 18') {
             steps {
                 sh '''
@@ -122,11 +138,11 @@ pipeline {
                     -d ${ODOO18_DB} \
                     --clean \
                     --if-exists \
-                    < ${ODOO17_DUMP} || true
+< ${ODOO17_DUMP} || true
                 '''
             }
         }
-
+ 
         stage('Run OpenUpgrade Migration') {
             steps {
                 sh '''
@@ -144,7 +160,7 @@ pipeline {
             }
         }
     }
-
+ 
     post {
         always {
             sh '''
@@ -154,11 +170,11 @@ pipeline {
             docker system prune -af --volumes
             '''
         }
-
+ 
         success {
             echo "✅ Odoo 17 → Odoo 18 migration completed successfully"
         }
-
+ 
         failure {
             echo "❌ Migration failed — check logs"
         }
