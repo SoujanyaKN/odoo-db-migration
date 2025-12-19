@@ -90,7 +90,6 @@ pipeline {
                           https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                     fi
 
-                    # Create proper addons directory
                     mkdir -p docker/OpenUpgrade-18.0/addons
                     cp -r docker/OpenUpgrade-18.0/openupgrade_framework \
                           docker/OpenUpgrade-18.0/addons/
@@ -134,7 +133,6 @@ pipeline {
                       --db_user=${DB_USER} \
                       --db_password=${DB_PASSWORD} \
                       --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
-                      -i openupgrade_framework \
                       -u all \
                       --stop-after-init
                 '''
