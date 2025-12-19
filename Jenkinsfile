@@ -117,15 +117,23 @@ pipeline {
             }
         }
 
+        stage('Patch All Base Views in Odoo 18') {
+            steps {
+                sh '''
+                    echo "Patching all base XML views with <list> -> <tree>..."
+                    docker exec --user root odoo18-web bash -c "
+                        for f in /usr/lib/python3/dist-packages/odoo/addons/base/views/*.xml; do
+                            sed -i -e 's|<list string=|<tree string=|g' \
+                                   -e 's|</list>|</tree>|g' \$f
+                        done
+                    "
+                '''
+            }
+        }
+
         stage('Run OpenUpgrade Migration - Base First ✅') {
             steps {
                 sh '''
-                    echo "Patching broken decimal_precision_views.xml in Odoo 18..."
-                    docker exec --user root odoo18-web bash -c \
-                        "sed -i -e 's|<list string=\\\"Decimal Precision\\\"|<tree string=\\\"Decimal Precision\\\"|' \
-                               -e 's|</list>|</tree>|' \
-                               /usr/lib/python3/dist-packages/odoo/addons/base/views/decimal_precision_views.xml"
-
                     echo "Cleaning conflicting res.lang entries in Odoo18 DB..."
                     docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -c "
                         DELETE FROM res_lang
