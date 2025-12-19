@@ -140,6 +140,19 @@ pipeline {
             }
         }
 
+        /* ===== REQUIRED FIX FOR res_lang DUPLICATES ===== */
+
+        stage('Pre-OpenUpgrade Fix: Clean res_lang') {
+            steps {
+                sh '''
+                  docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<EOF
+                  DELETE FROM res_lang;
+                  ALTER SEQUENCE IF EXISTS res_lang_id_seq RESTART WITH 1;
+                  EOF
+                '''
+            }
+        }
+
         /* ================= OPENUPGRADE RUN ================= */
 
         stage('OpenUpgrade - Base Module') {
@@ -196,3 +209,4 @@ pipeline {
         }
     }
 }
+
