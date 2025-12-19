@@ -11,23 +11,21 @@ pipeline {
         DB_PORT     = '5432'
 
         // ---------- Databases ----------
-        ODOO17_DB   = 'odoo17_db'
-        ODOO18_DB   = 'odoo18_db'
+        ODOO17_DB = 'odoo17_db'
+        ODOO18_DB = 'odoo18_db'
 
         // ---------- Dump ----------
         ODOO17_DUMP = 'odoo17.dump'
     }
 
     stages {
-        /* ---------------------------------------------------------- */
         stage('Checkout SCM') {
             steps {
                 checkout scm
             }
         }
 
-        /* ---------------------------------------------------------- */
-        stage('Start Odoo 17') {
+        stage('Start Odoo 17 Pod') {
             steps {
                 sh '''
                 echo "Starting Odoo 17 containers..."
@@ -36,12 +34,11 @@ pipeline {
             }
         }
 
-        /* ---------------------------------------------------------- */
         stage('Wait & Initialize Odoo 17 DB') {
             steps {
                 sh '''
                 echo "Waiting for Odoo 17 PostgreSQL..."
-                until docker exec odoo17-db pg_isready -U ${DB_USER} -h db -p ${DB_PORT}; do
+                until docker exec odoo17-db pg_isready -U ${DB_USER} -h ${DB_HOST} -p ${DB_PORT}; do
                     sleep 5
                 done
 
@@ -49,7 +46,7 @@ pipeline {
                 docker exec odoo17-web odoo \
                     -d ${ODOO17_DB} \
                     -i base,web,mail,account,stock,sale,purchase \
-                    --db_host=db \
+                    --db_host=${DB_HOST} \
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
@@ -58,7 +55,6 @@ pipeline {
             }
         }
 
-        /* ---------------------------------------------------------- */
         stage('Dump Odoo 17 Database') {
             steps {
                 sh '''
@@ -69,23 +65,19 @@ pipeline {
             }
         }
 
-        /* ---------------------------------------------------------- */
         stage('Stop & Clean Odoo 17 (Free Disk Space)') {
             steps {
                 sh '''
-                echo "Stopping Odoo 17 containers and freeing disk space..."
-                # Stop Odoo 17 and remove volumes, also remove orphan containers
-                docker-compose -f docker/docker-compose-odoo17.yml down -v --remove-orphans
-                # Remove any remaining dangling resources
-                docker system prune -f
-                # Check disk usage
+                echo "Stopping Odoo 17 containers..."
+                docker-compose -f docker/docker-compose-odoo17.yml down -v
+                echo "Pruning old Docker images, containers, and volumes to free disk space..."
+                docker system prune -af --volumes
                 df -h
                 '''
             }
         }
 
-        /* ---------------------------------------------------------- */
-        stage('Start Odoo 18') {
+        stage('Start Odoo 18 Pod') {
             steps {
                 sh '''
                 echo "Starting Odoo 18 containers..."
@@ -94,19 +86,17 @@ pipeline {
             }
         }
 
-        /* ---------------------------------------------------------- */
         stage('Wait for Odoo 18 DB') {
             steps {
                 sh '''
                 echo "Waiting for Odoo 18 PostgreSQL..."
-                until docker exec odoo18-db pg_isready -U ${DB_USER} -h db -p ${DB_PORT}; do
+                until docker exec odoo18-db pg_isready -U ${DB_USER} -h ${DB_HOST} -p ${DB_PORT}; do
                     sleep 5
                 done
                 '''
             }
         }
 
-        /* ---------------------------------------------------------- */
         stage('Restore Dump into Odoo 18') {
             steps {
                 sh '''
@@ -120,7 +110,6 @@ pipeline {
             }
         }
 
-        /* ---------------------------------------------------------- */
         stage('Run OpenUpgrade Migration') {
             steps {
                 sh '''
@@ -128,7 +117,7 @@ pipeline {
                 docker exec odoo18-web odoo \
                     -d ${ODOO18_DB} \
                     -u all \
-                    --db_host=db \
+                    --db_host=${DB_HOST} \
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
@@ -139,14 +128,12 @@ pipeline {
         }
     }
 
-    /* ---------------------------------------------------------- */
     post {
         always {
             sh '''
-            echo "Final cleanup: stopping all Odoo containers and freeing resources..."
-            docker-compose -f docker/docker-compose-odoo17.yml down -v --remove-orphans || true
-            docker-compose -f docker/docker-compose-odoo18.yml down -v --remove-orphans || true
-            docker system prune -f || true
+            echo "Final cleanup: stopping containers"
+            docker-compose -f docker/docker-compose-odoo17.yml down || true
+            docker-compose -f docker/docker-compose-odoo18.yml down || true
             '''
         }
 
