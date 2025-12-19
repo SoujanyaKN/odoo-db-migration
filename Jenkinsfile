@@ -10,6 +10,10 @@ pipeline {
         DB_PASSWORD = 'odoo'
         DB_PORT     = '5432'
 
+        // ---------- Database hosts ----------
+        ODOO17_DB_HOST = 'odoo17-db'
+        ODOO18_DB_HOST = 'odoo18-db'
+
         // ---------- Databases ----------
         ODOO17_DB = 'odoo17_db'
         ODOO18_DB = 'odoo18_db'
@@ -38,15 +42,15 @@ pipeline {
             steps {
                 sh '''
                 echo "Waiting for Odoo 17 PostgreSQL..."
-                until docker exec odoo17-db pg_isready -U ${DB_USER} -h ${DB_HOST} -p ${DB_PORT}; do
+                until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER} -h ${ODOO17_DB_HOST} -p ${DB_PORT}; do
                     sleep 5
                 done
 
                 echo "Initializing Odoo 17 database with core modules..."
                 docker exec odoo17-web odoo \
                     -d ${ODOO17_DB} \
-                    -i base,web,mail,account,stock,sale,purchase \
-                    --db_host=${DB_HOST} \
+                    -i base,web,mail,board,account,stock,sale,purchase \
+                    --db_host=${ODOO17_DB_HOST} \
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
@@ -59,7 +63,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Dumping Odoo 17 database..."
-                docker exec odoo17-db pg_dump -U ${DB_USER} -F c ${ODOO17_DB} > ${ODOO17_DUMP}
+                docker exec ${ODOO17_DB_HOST} pg_dump -U ${DB_USER} -F c ${ODOO17_DB} > ${ODOO17_DUMP}
                 ls -lh ${ODOO17_DUMP}
                 '''
             }
@@ -68,9 +72,8 @@ pipeline {
         stage('Stop & Clean Odoo 17 (Free Disk Space)') {
             steps {
                 sh '''
-                echo "Stopping Odoo 17 containers..."
+                echo "Stopping Odoo 17 containers and freeing disk space..."
                 docker-compose -f docker/docker-compose-odoo17.yml down -v
-                echo "Pruning old Docker images, containers, and volumes to free disk space..."
                 docker system prune -af --volumes
                 df -h
                 '''
@@ -90,7 +93,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Waiting for Odoo 18 PostgreSQL..."
-                until docker exec odoo18-db pg_isready -U ${DB_USER} -h ${DB_HOST} -p ${DB_PORT}; do
+                until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER} -h ${ODOO18_DB_HOST} -p ${DB_PORT}; do
                     sleep 5
                 done
                 '''
@@ -101,7 +104,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Restoring Odoo 17 dump into Odoo 18 DB..."
-                docker exec -i odoo18-db pg_restore \
+                docker exec -i ${ODOO18_DB_HOST} pg_restore \
                     -U ${DB_USER} \
                     -d ${ODOO18_DB} \
                     --clean \
@@ -117,7 +120,7 @@ pipeline {
                 docker exec odoo18-web odoo \
                     -d ${ODOO18_DB} \
                     -u all \
-                    --db_host=${DB_HOST} \
+                    --db_host=${ODOO18_DB_HOST} \
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
