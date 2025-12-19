@@ -103,12 +103,19 @@ pipeline {
         stage('Restore Dump into Odoo 18') {
             steps {
                 sh '''
-                echo "Restoring Odoo 17 dump into Odoo 18 DB..."
-                docker exec -i ${ODOO18_DB_HOST} pg_restore \
-                    -U ${DB_USER} \
-                    -d ${ODOO18_DB} \
-                    --clean \
-                    < ${ODOO17_DUMP}
+                echo "Checking if Odoo 18 DB is empty..."
+                COUNT=$(docker exec ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public';")
+                if [ "$COUNT" -eq "0" ]; then
+                    echo "Odoo 18 DB is empty, skipping restore."
+                else
+                    echo "Restoring Odoo 17 dump into Odoo 18 DB..."
+                    docker exec -i ${ODOO18_DB_HOST} pg_restore \
+                        -U ${DB_USER} \
+                        -d ${ODOO18_DB} \
+                        --clean \
+                        --if-exists \
+                        < ${ODOO17_DUMP} || true
+                fi
                 '''
             }
         }
