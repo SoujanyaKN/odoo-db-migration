@@ -93,18 +93,19 @@ pipeline {
             }
         }
 
-        // ---------- NEW STAGE TO ENSURE OPENUPGRADE ----------
+        // ---------- Optimized OpenUpgrade Stage ----------
         stage('Prepare OpenUpgrade 18') {
             steps {
                 sh '''
                 echo "Preparing OpenUpgrade 18.0..."
-                # Remove any old or partially cloned OpenUpgrade folder
-                rm -rf docker/OpenUpgrade-18.0
-                # Ensure docker folder is writable
-                chmod -R 775 docker
-                # Clone OpenUpgrade 18.0 branch
-                git clone --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
-                ls -lh docker/OpenUpgrade-18.0
+                if [ -d "docker/OpenUpgrade-18.0" ]; then
+                    echo "OpenUpgrade 18.0 already exists. Skipping clone."
+                else
+                    echo "Cloning OpenUpgrade 18.0 (shallow clone)..."
+                    chmod -R 775 docker
+                    git clone --depth 1 --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
+                fi
+                ls -lh docker/OpenUpgrade-18.0 || echo "OpenUpgrade folder not found!"
                 '''
             }
         }
@@ -180,4 +181,3 @@ pipeline {
         }
     }
 }
-
