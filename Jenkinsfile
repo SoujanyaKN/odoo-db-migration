@@ -11,8 +11,8 @@ pipeline {
         DB_PORT     = '5432'
 
         // ---------- Databases ----------
-        ODOO17_DB = 'odoo17_db'
-        ODOO18_DB = 'odoo18_db'
+        ODOO17_DB   = 'odoo17_db'
+        ODOO18_DB   = 'odoo18_db'
 
         // ---------- Dump ----------
         ODOO17_DUMP = 'odoo17.dump'
@@ -41,7 +41,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Waiting for Odoo 17 PostgreSQL..."
-                until docker exec odoo17-db pg_isready -U ${DB_USER} -h odoo17-db -p ${DB_PORT}; do
+                until docker exec odoo17-db pg_isready -U ${DB_USER} -h db -p ${DB_PORT}; do
                     sleep 5
                 done
 
@@ -49,7 +49,7 @@ pipeline {
                 docker exec odoo17-web odoo \
                     -d ${ODOO17_DB} \
                     -i base,web,mail,account,stock,sale,purchase \
-                    --db_host=odoo17-db \
+                    --db_host=db \
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
@@ -63,11 +63,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Dumping Odoo 17 database..."
-                docker exec odoo17-db pg_dump \
-                    -U ${DB_USER} \
-                    -F c \
-                    ${ODOO17_DB} > ${ODOO17_DUMP}
-
+                docker exec odoo17-db pg_dump -U ${DB_USER} -F c ${ODOO17_DB} > ${ODOO17_DUMP}
                 ls -lh ${ODOO17_DUMP}
                 '''
             }
@@ -78,8 +74,11 @@ pipeline {
             steps {
                 sh '''
                 echo "Stopping Odoo 17 containers and freeing disk space..."
-                docker-compose -f docker/docker-compose-odoo17.yml down -v
+                # Stop Odoo 17 and remove volumes, also remove orphan containers
+                docker-compose -f docker/docker-compose-odoo17.yml down -v --remove-orphans
+                # Remove any remaining dangling resources
                 docker system prune -f
+                # Check disk usage
                 df -h
                 '''
             }
@@ -90,7 +89,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Starting Odoo 18 containers..."
-                docker-compose -f docker/docker-compose-odoo18.yml up -d
+                docker-compose -f docker/docker-compose-odoo18.yml up -d --remove-orphans
                 '''
             }
         }
@@ -100,7 +99,7 @@ pipeline {
             steps {
                 sh '''
                 echo "Waiting for Odoo 18 PostgreSQL..."
-                until docker exec odoo18-db pg_isready -U ${DB_USER} -h odoo18-db -p ${DB_PORT}; do
+                until docker exec odoo18-db pg_isready -U ${DB_USER} -h db -p ${DB_PORT}; do
                     sleep 5
                 done
                 '''
@@ -125,11 +124,11 @@ pipeline {
         stage('Run OpenUpgrade Migration') {
             steps {
                 sh '''
-                echo "Running OpenUpgrade migration on Odoo 18..."
+                echo "Running OpenUpgrade migration..."
                 docker exec odoo18-web odoo \
                     -d ${ODOO18_DB} \
                     -u all \
-                    --db_host=odoo18-db \
+                    --db_host=db \
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
@@ -144,10 +143,10 @@ pipeline {
     post {
         always {
             sh '''
-            echo "Final cleanup: stopping all containers..."
-            docker-compose -f docker/docker-compose-odoo17.yml down || true
-            docker-compose -f docker/docker-compose-odoo18.yml down || true
-            docker system prune -f
+            echo "Final cleanup: stopping all Odoo containers and freeing resources..."
+            docker-compose -f docker/docker-compose-odoo17.yml down -v --remove-orphans || true
+            docker-compose -f docker/docker-compose-odoo18.yml down -v --remove-orphans || true
+            docker system prune -f || true
             '''
         }
 
