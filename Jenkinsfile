@@ -93,18 +93,17 @@ pipeline {
             }
         }
 
-        // ---------------- New Stage: Ensure OpenUpgrade exists ----------------
+        // ---------- NEW STAGE TO ENSURE OPENUPGRADE ----------
         stage('Prepare OpenUpgrade 18') {
             steps {
                 sh '''
-                echo "Checking OpenUpgrade 18.0..."
-                mkdir -p docker/OpenUpgrade-18.0
-                if [ ! "$(ls -A docker/OpenUpgrade-18.0)" ]; then
-                    echo "Cloning OpenUpgrade 18.0..."
-                    git clone --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
-                else
-                    echo "OpenUpgrade 18.0 already exists."
-                fi
+                echo "Preparing OpenUpgrade 18.0..."
+                # Remove any old or partially cloned OpenUpgrade folder
+                rm -rf docker/OpenUpgrade-18.0
+                # Ensure docker folder is writable
+                chmod -R 775 docker
+                # Clone OpenUpgrade 18.0 branch
+                git clone --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                 ls -lh docker/OpenUpgrade-18.0
                 '''
             }
@@ -139,7 +138,7 @@ pipeline {
                     -d ${ODOO18_DB} \
                     --clean \
                     --if-exists \
-                    < ${ODOO17_DUMP} || true
+< ${ODOO17_DUMP} || true
                 '''
             }
         }
@@ -155,7 +154,7 @@ pipeline {
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
-                    --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade \
+                    --addons-path=/usr/lib/python3/dist-packages/odoo/addons,docker/OpenUpgrade-18.0/addons \
                     --stop-after-init
                 '''
             }
