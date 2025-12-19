@@ -124,10 +124,27 @@ pipeline {
             }
         }
 
-        stage('Run OpenUpgrade Migration ✅') {
+        stage('Run OpenUpgrade Migration - Base First ✅') {
             steps {
                 sh '''
-                    echo "Running OpenUpgrade migration (excluding base module)..."
+                    echo "Running OpenUpgrade migration: base module first..."
+
+                    docker exec odoo18-web odoo \
+                      -d ${ODOO18_DB} \
+                      --db_host=${ODOO18_DB_HOST} \
+                      --db_user=${DB_USER} \
+                      --db_password=${DB_PASSWORD} \
+                      --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
+                      -u base \
+                      --stop-after-init
+                '''
+            }
+        }
+
+        stage('Run OpenUpgrade Migration - Remaining Modules ✅') {
+            steps {
+                sh '''
+                    echo "Running OpenUpgrade migration: remaining modules..."
 
                     docker exec odoo18-web odoo \
                       -d ${ODOO18_DB} \
