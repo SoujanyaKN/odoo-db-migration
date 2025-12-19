@@ -40,13 +40,15 @@ pipeline {
             }
         }
 
-        stage('Wait & Init Odoo 17') {
+        stage('Wait & Init Odoo 17 (without demo data)') {
             steps {
                 sh '''
                     until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
+                    echo "Installing base and modules in Odoo 17 (no demo data)..."
                     docker exec odoo17-web odoo \
                         -d ${ODOO17_DB} \
-                        -i base,web,mail,account,stock,sale,purchase \
+                        -i base,sale,purchase,stock,account,mail,web \
+                        --without-demo=all \
                         --db_host=${ODOO17_DB_HOST} \
                         --db_user=${DB_USER} \
                         --db_password=${DB_PASSWORD} \
@@ -55,7 +57,7 @@ pipeline {
             }
         }
 
-        stage('Dump Odoo 17 DB (stream)') {
+        stage('Dump Odoo 17 DB') {
             steps {
                 sh '''
                     echo "Dumping Odoo 17 DB..."
@@ -104,7 +106,7 @@ pipeline {
         stage('Restore DB into Odoo 18') {
             steps {
                 sh '''
-                    echo "Restoring dump into Odoo 18 DB..."
+                    echo "Restoring Odoo 17 DB dump into Odoo 18..."
                     cat ${ODOO17_DUMP} | docker exec -i ${ODOO18_DB_HOST} pg_restore \
                         -U ${DB_USER} -d ${ODOO18_DB} --clean --if-exists
                 '''
@@ -141,13 +143,6 @@ pipeline {
                         --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
                         --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
                         -u base --without-demo=all --stop-after-init
-
-                    echo "Check base recreated the decimal precision view..."
-                    echo "SELECT m.module, m.name, v.id, (v.arch_db LIKE '%<tree%') AS has_tree_root
-                          FROM ir_model_data m
-                          JOIN ir_ui_view v ON v.id = m.res_id
-                          WHERE m.model='ir.ui.view' AND m.module='base' AND m.name='view_decimal_precision_tree';" \
-                        | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB}
                 '''
             }
         }
@@ -168,6 +163,22 @@ pipeline {
             }
         }
 
+        stage('Load Dummy Data into Odoo 18 (Optional)') {
+            steps {
+                sh '''
+                    echo "Loading demo/dummy data in Odoo 18..."
+                    docker exec odoo18-web odoo \
+                        -d ${ODOO18_DB} \
+                        -i sale,purchase,stock,account,mail,web \
+                        --load-demo=all \
+                        --db_host=${ODOO18_DB_HOST} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
+                        --stop-after-init
+                '''
+            }
+        }
+
         stage('Post checks') {
             steps {
                 sh '''
@@ -180,7 +191,7 @@ pipeline {
     }
     post {
         success { 
-            echo "✅ Odoo 17 → 18 migration completed successfully" 
+            echo "✅ Odoo 17 → 18 migration completed successfully with demo data" 
         }
         failure { 
             echo "❌ Migration failed — check logs" 
