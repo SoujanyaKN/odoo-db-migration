@@ -117,22 +117,7 @@ pipeline {
             }
         }
 
-        stage('Patch All XML Views in Odoo 18') {
-            steps {
-                sh '''
-                    echo "Patching all XML views with <list> -> <tree> recursively..."
-                    docker exec --user root odoo18-web bash -c '
-                        find /usr/lib/python3/dist-packages/odoo/addons/ -name "*.xml" | while read f; do
-                            if [ -f "$f" ]; then
-                                sed -i -e "s|<list string=|<tree string=|g" \
-                                       -e "s|</list>|</tree>|g" "$f"
-                                echo "Patched $f"
-                            fi
-                        done
-                    '
-                '''
-            }
-        }
+        // ✅ Removed Patch All Base Views stage
 
         stage('Run OpenUpgrade Migration - Base First ✅') {
             steps {
