@@ -8,7 +8,6 @@ pipeline {
     environment {
         DB_USER     = 'odoo'
         DB_PASSWORD = 'odoo'
-        DB_PORT     = '5432'
 
         ODOO17_DB_HOST = 'odoo17-db'
         ODOO18_DB_HOST = 'odoo18-db'
@@ -37,7 +36,7 @@ pipeline {
             }
         }
 
-        /* ---------------- ODOO 17 ---------------- */
+        /* ================= ODOO 17 ================= */
 
         stage('Start Odoo 17') {
             steps {
@@ -72,13 +71,11 @@ pipeline {
 
         stage('Stop Odoo 17') {
             steps {
-                sh '''
-                  docker-compose -f docker/docker-compose-odoo17.yml down -v
-                '''
+                sh 'docker-compose -f docker/docker-compose-odoo17.yml down -v'
             }
         }
 
-        /* ---------------- PREP OPENUPGRADE ---------------- */
+        /* ================= OPENUPGRADE ================= */
 
         stage('Prepare OpenUpgrade 18') {
             steps {
@@ -88,23 +85,24 @@ pipeline {
                   fi
 
                   mkdir -p docker/OpenUpgrade-18.0/addons
-                  rsync -a docker/OpenUpgrade-18.0/openupgrade_framework/ docker/OpenUpgrade-18.0/addons/openupgrade_framework/
+                  rsync -a docker/OpenUpgrade-18.0/openupgrade_framework/ \
+                        docker/OpenUpgrade-18.0/addons/openupgrade_framework/
                 '''
             }
         }
 
-        /* ---------------- ODOO 18 ---------------- */
+        /* ================= ODOO 18 ================= */
 
-        stage('Start Odoo 18 DB Only') {
+        stage('Start Odoo 18 (DB + Web)') {
             steps {
                 sh '''
-                  docker-compose -f docker/docker-compose-odoo18.yml up -d odoo18-db
+                  docker-compose -f docker/docker-compose-odoo18.yml up -d
                   until docker exec odoo18-db pg_isready -U odoo; do sleep 5; done
                 '''
             }
         }
 
-        stage('Recreate Empty Odoo 18 DB') {
+        stage('Recreate EMPTY Odoo 18 DB') {
             steps {
                 sh '''
                   docker exec -i odoo18-db psql -U odoo <<EOF
@@ -124,12 +122,6 @@ pipeline {
                     --no-owner \
                     --no-privileges
                 '''
-            }
-        }
-
-        stage('Start Odoo 18 Web') {
-            steps {
-                sh 'docker-compose -f docker/docker-compose-odoo18.yml up -d odoo18-web'
             }
         }
 
@@ -180,7 +172,7 @@ pipeline {
             echo '✅ Odoo 17 → Odoo 18 migration completed successfully'
         }
         failure {
-            echo '❌ Migration failed – check logs'
+            echo '❌ Migration failed — check logs'
         }
     }
 }
