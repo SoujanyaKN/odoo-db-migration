@@ -93,19 +93,18 @@ pipeline {
             }
         }
 
-        // ---------- Optimized OpenUpgrade Stage ----------
         stage('Prepare OpenUpgrade 18') {
             steps {
                 sh '''
                 echo "Preparing OpenUpgrade 18.0..."
-                if [ -d "docker/OpenUpgrade-18.0" ]; then
-                    echo "OpenUpgrade 18.0 already exists. Skipping clone."
+                # Only clone if not already present
+                if [ ! -d docker/OpenUpgrade-18.0 ]; then
+                    echo "Cloning OpenUpgrade 18.0..."
+                    git clone --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                 else
-                    echo "Cloning OpenUpgrade 18.0 (shallow clone)..."
-                    chmod -R 775 docker
-                    git clone --depth 1 --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
+                    echo "OpenUpgrade 18.0 already exists. Skipping clone."
                 fi
-                ls -lh docker/OpenUpgrade-18.0 || echo "OpenUpgrade folder not found!"
+                ls -lh docker/OpenUpgrade-18.0
                 '''
             }
         }
@@ -155,7 +154,7 @@ pipeline {
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
-                    --addons-path=/usr/lib/python3/dist-packages/odoo/addons,docker/OpenUpgrade-18.0/addons \
+                    --addons-path=/usr/lib/python3/dist-packages/odoo/addons,docker/OpenUpgrade-18.0/openupgrade_scripts/scripts,docker/OpenUpgrade-18.0/openupgrade_framework \
                     --stop-after-init
                 '''
             }
