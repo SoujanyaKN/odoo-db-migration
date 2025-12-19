@@ -117,13 +117,11 @@ pipeline {
                     set -e
 
                     echo "Cleaning duplicate/legacy language rows..."
-                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1 <<'SQL'
-                    DELETE FROM res_lang
-                    WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');
-                    SQL
+                    echo "DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');" \
+                        | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
                     echo "Removing conflicting base.view_decimal_precision_tree via ir_model_data..."
-                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1 <<'SQL'
+                    echo "
                     WITH to_del AS (
                         SELECT v.id
                         FROM ir_ui_view v
@@ -134,7 +132,7 @@ pipeline {
                     DELETE FROM ir_ui_view WHERE id IN (SELECT id FROM to_del);
                     DELETE FROM ir_model_data
                      WHERE model='ir.ui.view' AND module='base' AND name='view_decimal_precision_tree';
-                    SQL
+                    " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
                     echo "Upgrading base only..."
                     docker exec odoo18-web odoo \
@@ -145,12 +143,11 @@ pipeline {
                         -u base --without-demo=all --stop-after-init
 
                     echo "Check base recreated the decimal precision view..."
-                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -c "
-                        SELECT m.module, m.name, v.id, (v.arch_db LIKE '%<tree%') AS has_tree_root
-                        FROM ir_model_data m
-                        JOIN ir_ui_view v ON v.id = m.res_id
-                        WHERE m.model='ir.ui.view' AND m.module='base' AND m.name='view_decimal_precision_tree';
-                    "
+                    echo "SELECT m.module, m.name, v.id, (v.arch_db LIKE '%<tree%') AS has_tree_root
+                          FROM ir_model_data m
+                          JOIN ir_ui_view v ON v.id = m.res_id
+                          WHERE m.model='ir.ui.view' AND m.module='base' AND m.name='view_decimal_precision_tree';" \
+                        | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB}
                 '''
             }
         }
