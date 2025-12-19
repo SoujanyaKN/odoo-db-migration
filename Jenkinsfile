@@ -41,9 +41,7 @@ pipeline {
 
         stage('Start Odoo 17') {
             steps {
-                sh '''
-                    docker-compose -f docker/docker-compose-odoo17.yml up -d
-                '''
+                sh 'docker-compose -f docker/docker-compose-odoo17.yml up -d'
             }
         }
 
@@ -51,7 +49,6 @@ pipeline {
             steps {
                 sh '''
                     until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
-
                     docker exec odoo17-web odoo \
                       -d ${ODOO17_DB} \
                       -i base,web,mail,account,stock,sale,purchase \
@@ -101,17 +98,13 @@ pipeline {
 
         stage('Start Odoo 18') {
             steps {
-                sh '''
-                    docker-compose -f docker/docker-compose-odoo18.yml up -d --remove-orphans
-                '''
+                sh 'docker-compose -f docker/docker-compose-odoo18.yml up -d --remove-orphans'
             }
         }
 
         stage('Wait for Odoo 18 DB') {
             steps {
-                sh '''
-                    until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
-                '''
+                sh 'until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done'
             }
         }
 
@@ -147,7 +140,7 @@ pipeline {
                       --db_host=${ODOO18_DB_HOST} \
                       --db_user=${DB_USER} \
                       --db_password=${DB_PASSWORD} \
-                      --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
+                      --addons-path=/mnt/openupgrade_addons,/usr/lib/python3/dist-packages/odoo/addons \
                       -u base \
                       --without-demo=all \
                       --stop-after-init
@@ -164,7 +157,7 @@ pipeline {
                       --db_host=${ODOO18_DB_HOST} \
                       --db_user=${DB_USER} \
                       --db_password=${DB_PASSWORD} \
-                      --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
+                      --addons-path=/mnt/openupgrade_addons,/usr/lib/python3/dist-packages/odoo/addons \
                       -u web,mail,account,stock,sale,purchase \
                       --without-demo=all \
                       --stop-after-init
