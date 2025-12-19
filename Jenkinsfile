@@ -117,6 +117,18 @@ pipeline {
             }
         }
 
+        stage('Patch Broken Base View in Odoo 18') {
+            steps {
+                sh '''
+                    echo "Patching broken decimal_precision_views.xml in Odoo 18..."
+                    docker exec odoo18-web bash -c "
+                        sed -i 's|<list string=\"Decimal Precision\"|<tree string=\"Decimal Precision\"|' \
+                        /usr/lib/python3/dist-packages/odoo/addons/base/views/decimal_precision_views.xml
+                    "
+                '''
+            }
+        }
+
         stage('Run OpenUpgrade Migration - Base First ✅') {
             steps {
                 sh '''
