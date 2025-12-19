@@ -17,10 +17,16 @@ services:
     depends_on:
       - db
     ports:
-      - "8070:8069"
+      - "8070:8069"   # Odoo UI on host 8070
     volumes:
-      - ./OpenUpgrade-18.0/openupgrade_scripts/scripts:/mnt/openupgrade_scripts
+      # Mount ONLY the framework (NOT an addon)
       - ./OpenUpgrade-18.0/openupgrade_framework:/mnt/openupgrade_framework
+
+      # Optional: scripts (do NOT put this in --addons-path)
+      - ./OpenUpgrade-18.0/openupgrade_scripts:/mnt/openupgrade_scripts
+
+      # Optional: custom addons
+      # - ./custom_addons:/mnt/custom_addons
     environment:
       HOST: db
       USER: odoo
