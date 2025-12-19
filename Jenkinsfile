@@ -97,10 +97,10 @@ pipeline {
             steps {
                 sh '''
                 echo "Preparing OpenUpgrade 18.0..."
-                # Only clone if not already present
+                # Only clone if not already present (shallow clone)
                 if [ ! -d docker/OpenUpgrade-18.0 ]; then
-                    echo "Cloning OpenUpgrade 18.0..."
-                    git clone --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
+                    echo "Cloning OpenUpgrade 18.0 (shallow)..."
+                    git clone --depth 1 --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                 else
                     echo "OpenUpgrade 18.0 already exists. Skipping clone."
                 fi
@@ -154,7 +154,7 @@ pipeline {
                     --db_port=${DB_PORT} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
-                    --addons-path=/usr/lib/python3/dist-packages/odoo/addons,docker/OpenUpgrade-18.0/openupgrade_scripts/scripts,docker/OpenUpgrade-18.0/openupgrade_framework \
+                    --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_scripts,/mnt/openupgrade_framework \
                     --stop-after-init
                 '''
             }
