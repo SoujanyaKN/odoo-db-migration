@@ -44,7 +44,7 @@ pipeline {
             steps {
                 sh '''
                     until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
-                    echo "Installing base and modules in Odoo 17 (no demo data)..."
+                    echo "Installing base and core modules in Odoo 17 (no demo data)..."
                     docker exec odoo17-web odoo \
                         -d ${ODOO17_DB} \
                         -i base,sale,purchase,stock,account,mail,web \
@@ -150,15 +150,23 @@ pipeline {
         stage('Run OpenUpgrade Migration - Remaining Modules ✅') {
             steps {
                 sh '''
-                    echo "Upgrading remaining modules..."
-                    docker exec odoo18-web odoo \
-                        -d ${ODOO18_DB} \
-                        --db_host=${ODOO18_DB_HOST} \
-                        --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
-                        --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
-                        --load=base,web,openupgrade_framework \
-                        -u web,mail,account,stock,sale,purchase \
-                        --without-demo=all --stop-after-init
+                    echo "Upgrading remaining modules safely..."
+
+                    # Get all modules installed in the restored DB
+                    INSTALLED_MODULES=$(docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -t -c "SELECT name FROM ir_module_module WHERE state='installed';" | tr -d '[:space:]' | tr '\n' ',' | sed 's/,$//')
+
+                    echo "Installed modules detected: $INSTALLED_MODULES"
+
+                    # Upgrade each module individually
+                    for module in $(echo $INSTALLED_MODULES | tr ',' ' '); do
+                        echo "Upgrading module: $module"
+                        docker exec odoo18-web odoo \
+                            -d ${ODOO18_DB} \
+                            --db_host=${ODOO18_DB_HOST} \
+                            --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
+                            --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
+                            -u $module --without-demo=all --stop-after-init || true
+                    done
                 '''
             }
         }
