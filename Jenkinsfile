@@ -127,8 +127,16 @@ pipeline {
         stage('Run OpenUpgrade Migration - Base First ✅') {
             steps {
                 sh '''
-                    echo "Running OpenUpgrade migration: base module first..."
+                    echo "Cleaning conflicting res.lang entries in Odoo18 DB..."
+                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -c "
+                        DELETE FROM res_lang
+                        WHERE name IN (
+                            'Serbian (Cyrillic) / српски',
+                            'Belarusian / Беларусьская мова'
+                        );
+                    "
 
+                    echo "Running OpenUpgrade migration: base module first..."
                     docker exec odoo18-web odoo \
                       -d ${ODOO18_DB} \
                       --db_host=${ODOO18_DB_HOST} \
@@ -146,7 +154,6 @@ pipeline {
             steps {
                 sh '''
                     echo "Running OpenUpgrade migration: remaining modules..."
-
                     docker exec odoo18-web odoo \
                       -d ${ODOO18_DB} \
                       --db_host=${ODOO18_DB_HOST} \
