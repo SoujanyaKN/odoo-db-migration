@@ -117,18 +117,19 @@ pipeline {
             }
         }
 
-        stage('Patch All Base Views in Odoo 18') {
+        stage('Patch All XML Views in Odoo 18') {
             steps {
                 sh '''
-                    echo "Patching all base XML views with <list> -> <tree>..."
-                    docker exec --user root odoo18-web bash -c "
-                        for f in /usr/lib/python3/dist-packages/odoo/addons/base/views/*.xml; do
-                            if [ -f \$f ]; then
-                                sed -i -e 's|<list string=|<tree string=|g' \
-                                       -e 's|</list>|</tree>|g' \$f
+                    echo "Patching all XML views with <list> -> <tree> recursively..."
+                    docker exec --user root odoo18-web bash -c '
+                        find /usr/lib/python3/dist-packages/odoo/addons/ -name "*.xml" | while read f; do
+                            if [ -f "$f" ]; then
+                                sed -i -e "s|<list string=|<tree string=|g" \
+                                       -e "s|</list>|</tree>|g" "$f"
+                                echo "Patched $f"
                             fi
                         done
-                    "
+                    '
                 '''
             }
         }
@@ -148,7 +149,6 @@ pipeline {
                     echo "Cleaning problematic base views..."
                     docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -c "
                         DELETE FROM ir_ui_view WHERE key='view_decimal_precision_tree';
-                        DELETE FROM ir_ui_view WHERE key='action_view_tree';
                     "
 
                     echo "Running OpenUpgrade migration: base module first..."
