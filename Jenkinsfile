@@ -136,6 +136,11 @@ pipeline {
                         );
                     "
 
+                    echo "Cleaning problematic base views..."
+                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -c "
+                        DELETE FROM ir_ui_view WHERE key='view_decimal_precision_tree';
+                    "
+
                     echo "Running OpenUpgrade migration: base module first..."
                     docker exec odoo18-web odoo \
                       -d ${ODOO18_DB} \
