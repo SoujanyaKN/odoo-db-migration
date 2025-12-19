@@ -1,4 +1,4 @@
-kkpipeline {
+pipeline {
     agent any
     options {
         timestamps()
