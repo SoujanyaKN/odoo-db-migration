@@ -19,7 +19,8 @@ services:
     ports:
       - "8070:8069"
     volumes:
-      - ./OpenUpgrade-18.0:/mnt/openupgrade
+      - ./OpenUpgrade-18.0/openupgrade_scripts/scripts:/mnt/openupgrade_scripts
+      - ./OpenUpgrade-18.0/openupgrade_framework:/mnt/openupgrade_framework
     environment:
       HOST: db
       USER: odoo
