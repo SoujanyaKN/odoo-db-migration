@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -20,7 +21,7 @@ pipeline {
 
     stages {
 
-        stage('Cleanup Docker') {
+        stage('Initial Docker Cleanup') {
             steps {
                 sh '''
                   docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
@@ -69,9 +70,22 @@ pipeline {
             }
         }
 
-        stage('Stop Odoo 17') {
+        /* 🔥 CRITICAL SPACE CLEANUP 🔥 */
+        stage('Remove Odoo 17 & Free Disk Space') {
             steps {
-                sh 'docker-compose -f docker/docker-compose-odoo17.yml down -v'
+                sh '''
+                  echo "Stopping Odoo 17..."
+                  docker-compose -f docker/docker-compose-odoo17.yml down -v || true
+
+                  echo "Removing ALL unused containers, images, volumes..."
+                  docker rm -f $(docker ps -aq) 2>/dev/null || true
+                  docker volume rm $(docker volume ls -q) 2>/dev/null || true
+                  docker image rm -f $(docker images -aq) 2>/dev/null || true
+                  docker system prune -af --volumes
+
+                  echo "Disk usage after cleanup:"
+                  df -h
+                '''
             }
         }
 
@@ -93,7 +107,7 @@ pipeline {
 
         /* ================= ODOO 18 ================= */
 
-        stage('Start Odoo 18 (DB + Web)') {
+        stage('Start Odoo 18 (Fresh)') {
             steps {
                 sh '''
                   docker-compose -f docker/docker-compose-odoo18.yml up -d
