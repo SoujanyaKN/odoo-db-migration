@@ -119,14 +119,7 @@ pipeline {
 
                     # Replace <list> → <tree> ONLY in tree views
                     find "$OPENUPGRADE_DIR" -type f -name "*.xml" -print0 | while IFS= read -r -d '' file; do
-                        # Only change <list> that is directly under <tree> context
-                        awk '
-                        /<tree/ {in_tree=1}
-                        /<\/tree>/ {in_tree=0}
-                        in_tree && /<list / {gsub("<list","<tree")}
-                        in_tree && /<\/list>/ {gsub("</list>","</tree>")}
-                        {print}
-                        ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+                        awk "/<tree/ {in_tree=1} /<\\/tree>/ {in_tree=0} in_tree && /<list / {gsub(\"<list\",\"<tree\")} in_tree && /<\\/list>/ {gsub(\"</list>\",\"</tree\")} {print}" "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
                     done
 
                     echo "✅ Safe patch completed. Backup saved at $BACKUP_DIR"
