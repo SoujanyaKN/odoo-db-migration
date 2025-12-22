@@ -105,6 +105,27 @@ pipeline {
             }
         }
 
+        stage('Patch <list> to <tree> in OpenUpgrade') {
+            steps {
+                sh '''
+                  echo "Patching <list> → <tree> in OpenUpgrade addons..."
+                  OPENUPGRADE_DIR="docker/OpenUpgrade-18.0/addons"
+
+                  # Backup original files
+                  BACKUP_DIR="${OPENUPGRADE_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
+                  cp -r "$OPENUPGRADE_DIR" "$BACKUP_DIR"
+
+                  # Replace opening <list ...> with <tree ...>
+                  find "$OPENUPGRADE_DIR" -type f -name "*.xml" -exec sed -i 's/<list /<tree /g' {} ;
+
+                  # Replace closing </list> with </tree>
+                  find "$OPENUPGRADE_DIR" -type f -name "*.xml" -exec sed -i 's/<\\/list>/<\\/tree>/g' {} ;
+
+                  echo "✅ Patch completed. Backup saved at $BACKUP_DIR"
+                '''
+            }
+        }
+
         /* ================= ODOO 18 ================= */
 
         stage('Start Odoo 18') {
@@ -136,29 +157,6 @@ pipeline {
                     -d ${ODOO18_DB} \
                     --no-owner \
                     --no-privileges
-                '''
-            }
-        }
-
-        /* ===== PATCH <list> TO <tree> ===== */
-
-        stage('Patch <list> to <tree> in OpenUpgrade') {
-            steps {
-                sh '''
-                  echo "Patching <list> → <tree> in OpenUpgrade addons..."
-                  OPENUPGRADE_DIR="docker/OpenUpgrade-18.0/addons"
-
-                  # Backup original files
-                  BACKUP_DIR="${OPENUPGRADE_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
-                  cp -r "$OPENUPGRADE_DIR" "$BACKUP_DIR"
-
-                  # Replace opening <list ...> with <tree ...>
-                  find "$OPENUPGRADE_DIR" -type f -name "*.xml" -exec sed -i 's/<list /<tree /g' {} \;
-
-                  # Replace closing </list> with </tree>
-                  find "$OPENUPGRADE_DIR" -type f -name "*.xml" -exec sed -i 's/<\\/list>/<\\/tree>/g' {} \;
-
-                  echo "✅ Patch completed. Backup saved at $BACKUP_DIR"
                 '''
             }
         }
