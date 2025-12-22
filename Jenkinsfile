@@ -17,13 +17,21 @@ pipeline {
     }
 
     stages {
-        stage('Initial Cleanup') {
+        stage('Total Environment Cleanup 🧨') {
             steps {
                 sh '''
-                    echo "Cleaning environment before starting..."
+                    echo "Cleaning EVERYTHING to free up maximum disk space..."
+                    # Stop and remove all containers related to this project
                     docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
-                    docker volume prune -f
-                    docker system prune -f
+                    
+                    # Remove all unused Docker data (containers, networks, images, and volumes)
+                    # -a removes all unused images, not just dangling ones
+                    docker system prune -af --volumes
+                    
+                    # Optional: Clean up the workspace dump file if it exists from a previous failed run
+                    rm -f ${ODOO17_DUMP}
+                    
+                    echo "Disk space after cleanup:"
                     df -h
                 '''
             }
