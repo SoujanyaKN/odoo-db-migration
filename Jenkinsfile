@@ -9,10 +9,8 @@ pipeline {
         DB_PORT         = '5432'
         ODOO17_DB_HOST  = 'odoo17-db'
         ODOO18_DB_HOST  = 'odoo18-db'
-
         ODOO17_DB       = 'odoo17_db'
         ODOO18_DB       = 'odoo18_db'
-
         ODOO17_DUMP     = 'odoo17.dump'
     }
 
@@ -30,15 +28,11 @@ pipeline {
         }
 
         stage('Checkout SCM') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
 
         stage('Start Odoo 17') {
-            steps {
-                sh 'docker compose -f docker/docker-compose-odoo17.yml up -d'
-            }
+            steps { sh 'docker compose -f docker/docker-compose-odoo17.yml up -d' }
         }
 
         stage('Wait & Init Odoo 17') {
@@ -66,10 +60,8 @@ pipeline {
         stage('Mid-Pipeline Disk Cleanup 🧹') {
             steps {
                 sh '''
-                    echo "Stopping Odoo 17 and clearing space for Odoo 18 images..."
                     docker compose -f docker/docker-compose-odoo17.yml down -v
                     docker system prune -af --volumes
-                    df -h
                 '''
             }
         }
@@ -87,9 +79,7 @@ pipeline {
         }
 
         stage('Start Odoo 18') {
-            steps {
-                sh 'docker compose -f docker/docker-compose-odoo18.yml up -d --remove-orphans'
-            }
+            steps { sh 'docker compose -f docker/docker-compose-odoo18.yml up -d --remove-orphans' }
         }
 
         stage('Restore DB into Odoo 18') {
@@ -106,32 +96,30 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    echo "Installing openupgradelib..."
                     docker exec -u 0 odoo18-web pip install openupgradelib --break-system-packages
 
-                    echo "Executing Ordered View Cleanup to bypass Check Constraints..."
+                    echo "Executing Recursive View Cleanup..."
                     echo "
-                    /* 1. Delete ALL child (extension) views that inherit from a base view */
-                    DELETE FROM ir_ui_view 
-                    WHERE inherit_id IN (
-                        SELECT res_id FROM ir_model_data 
-                        WHERE model='ir.ui.view' AND module='base'
-                    );
+                    WITH RECURSIVE view_tree AS (
+                        SELECT id FROM ir_ui_view 
+                        WHERE inherit_id IN (
+                            SELECT res_id FROM ir_model_data WHERE model='ir.ui.view' AND module='base'
+                        )
+                        UNION
+                        SELECT v.id FROM ir_ui_view v
+                        INNER JOIN view_tree vt ON v.inherit_id = vt.id
+                    )
+                    DELETE FROM ir_ui_view WHERE id IN (SELECT id FROM view_tree);
 
-                    /* 2. Delete the actual base views (parents) */
                     DELETE FROM ir_ui_view WHERE id IN (
-                        SELECT res_id FROM ir_model_data 
-                        WHERE model='ir.ui.view' AND module='base'
+                        SELECT res_id FROM ir_model_data WHERE model='ir.ui.view' AND module='base'
                     );
 
-                    /* 3. Cleanup the XML-ID mapping */
                     DELETE FROM ir_model_data WHERE model='ir.ui.view' AND module='base';
 
-                    /* 4. Cleanup duplicate language rows */
                     DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');
                     " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
-                    echo "Starting Base Migration..."
                     docker exec odoo18-web odoo \
                         -d ${ODOO18_DB} \
                         --db_host=${ODOO18_DB_HOST} \
