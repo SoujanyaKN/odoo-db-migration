@@ -110,20 +110,26 @@ pipeline {
         stage('Patch <list> to <tree> in OpenUpgrade') {
             steps {
                 sh '''
-                    echo "Patching <list> → <tree> in OpenUpgrade addons..."
+                    echo "Patching <list> → <tree> in OpenUpgrade addons safely..."
                     OPENUPGRADE_DIR="docker/OpenUpgrade-18.0/addons"
 
                     # Backup original files
                     BACKUP_DIR="${OPENUPGRADE_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
                     cp -r "$OPENUPGRADE_DIR" "$BACKUP_DIR"
 
-                    # Replace opening <list ...> with <tree ...>
-                    find "$OPENUPGRADE_DIR" -type f -name "*.xml" -exec sed -i "s/<list /<tree /g" {} \\;
+                    # Replace <list> → <tree> ONLY in tree views
+                    find "$OPENUPGRADE_DIR" -type f -name "*.xml" -print0 | while IFS= read -r -d '' file; do
+                        # Only change <list> that is directly under <tree> context
+                        awk '
+                        /<tree/ {in_tree=1}
+                        /<\/tree>/ {in_tree=0}
+                        in_tree && /<list / {gsub("<list","<tree")}
+                        in_tree && /<\/list>/ {gsub("</list>","</tree>")}
+                        {print}
+                        ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+                    done
 
-                    # Replace closing </list> with </tree>
-                    find "$OPENUPGRADE_DIR" -type f -name "*.xml" -exec sed -i "s#</list>#</tree>#g" {} \\;
-
-                    echo "✅ Patch completed. Backup saved at $BACKUP_DIR"
+                    echo "✅ Safe patch completed. Backup saved at $BACKUP_DIR"
                 '''
             }
         }
