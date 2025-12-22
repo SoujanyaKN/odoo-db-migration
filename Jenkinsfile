@@ -117,8 +117,9 @@ pipeline {
                     until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
 
                     echo "Dropping and recreating Odoo 18 DB..."
-                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -c "DROP DATABASE IF EXISTS ${ODOO18_DB};"
-                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -c "CREATE DATABASE ${ODOO18_DB};"
+                    # Connect to the 'postgres' database to drop/create Odoo 18 DB
+                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d postgres -c "DROP DATABASE IF EXISTS ${ODOO18_DB};"
+                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d postgres -c "CREATE DATABASE ${ODOO18_DB};"
 
                     echo "Copying dump to Odoo 18 DB container..."
                     docker cp ${ODOO17_DUMP} ${ODOO18_DB_HOST}:/tmp/${ODOO17_DUMP}
