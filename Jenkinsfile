@@ -122,10 +122,21 @@ pipeline {
                     echo "DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');" \
                         | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
-                    echo "Deleting conflicting Odoo 17 views to prevent <list> vs <tree> validation errors..."
+                    echo "Deleting conflicting Odoo 17 views via ir_model_data..."
                     echo "
-                    DELETE FROM ir_ui_view WHERE xml_id IN ('base.action_view_tree', 'base.view_decimal_precision_tree');
-                    DELETE FROM ir_model_data WHERE module='base' AND name IN ('action_view_tree', 'view_decimal_precision_tree');
+                    /* 1. Delete the actual view records using a join on ir_model_data */
+                    DELETE FROM ir_ui_view WHERE id IN (
+                        SELECT res_id FROM ir_model_data 
+                        WHERE model='ir.ui.view' 
+                        AND module='base' 
+                        AND name IN ('action_view_tree', 'view_decimal_precision_tree')
+                    );
+                    
+                    /* 2. Delete the XML ID mappings */
+                    DELETE FROM ir_model_data 
+                    WHERE model='ir.ui.view' 
+                    AND module='base' 
+                    AND name IN ('action_view_tree', 'view_decimal_precision_tree');
                     " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
                     echo "Starting Base Migration with OpenUpgrade Framework loaded..."
