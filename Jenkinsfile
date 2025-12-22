@@ -17,7 +17,6 @@ pipeline {
     }
 
     stages {
-
         stage('Cleanup Old Containers & Volumes') {
             steps {
                 sh '''
@@ -88,7 +87,6 @@ pipeline {
 
                     mkdir -p docker/OpenUpgrade-18.0/addons
                     rsync -a --delete docker/OpenUpgrade-18.0/openupgrade_framework/ docker/OpenUpgrade-18.0/addons/openupgrade_framework/
-                    test -f docker/OpenUpgrade-18.0/addons/openupgrade_framework/__manifest__.py
                 '''
             }
         }
@@ -124,26 +122,20 @@ pipeline {
                     echo "DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');" \
                         | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
-                    echo "Removing conflicting base.view_decimal_precision_tree..."
+                    echo "Deleting conflicting Odoo 17 views to prevent <list> vs <tree> validation errors..."
                     echo "
-                    WITH to_del AS (
-                        SELECT v.id
-                        FROM ir_ui_view v
-                        JOIN ir_model_data m
-                          ON m.model='ir.ui.view' AND m.res_id=v.id
-                        WHERE m.module='base' AND m.name='view_decimal_precision_tree'
-                    )
-                    DELETE FROM ir_ui_view WHERE id IN (SELECT id FROM to_del);
-                    DELETE FROM ir_model_data
-                     WHERE model='ir.ui.view' AND module='base' AND name='view_decimal_precision_tree';
+                    DELETE FROM ir_ui_view WHERE xml_id IN ('base.action_view_tree', 'base.view_decimal_precision_tree');
+                    DELETE FROM ir_model_data WHERE module='base' AND name IN ('action_view_tree', 'view_decimal_precision_tree');
                     " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
+                    echo "Starting Base Migration with OpenUpgrade Framework loaded..."
                     docker exec odoo18-web odoo \
                         -d ${ODOO18_DB} \
                         --db_host=${ODOO18_DB_HOST} \
                         --db_user=${DB_USER} \
                         --db_password=${DB_PASSWORD} \
                         --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
+                        --load=base,web,openupgrade_framework \
                         -u base --without-demo=all --stop-after-init
                 '''
             }
@@ -161,21 +153,6 @@ pipeline {
                         --load=base,web,openupgrade_framework \
                         -u web,mail,account,stock,sale,purchase \
                         --without-demo=all --stop-after-init
-                '''
-            }
-        }
-
-        stage('Load Dummy Data into Odoo 18 (Optional)') {
-            steps {
-                sh '''
-                    docker exec odoo18-web odoo \
-                        -d ${ODOO18_DB} \
-                        -i sale,purchase,stock,account,mail,web \
-                        --load-demo=all \
-                        --db_host=${ODOO18_DB_HOST} \
-                        --db_user=${DB_USER} \
-                        --db_password=${DB_PASSWORD} \
-                        --stop-after-init
                 '''
             }
         }
