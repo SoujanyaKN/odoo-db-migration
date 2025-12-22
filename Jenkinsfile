@@ -21,16 +21,9 @@ pipeline {
             steps {
                 sh '''
                     echo "Cleaning EVERYTHING to free up maximum disk space..."
-                    # Stop and remove all containers related to this project
                     docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
-                    
-                    # Remove all unused Docker data (containers, networks, images, and volumes)
                     docker system prune -af --volumes
-                    
-                    # Clean up the workspace dump file if it exists from a previous run
                     rm -f ${ODOO17_DUMP}
-                    
-                    echo "Disk space after cleanup:"
                     df -h
                 '''
             }
@@ -76,7 +69,6 @@ pipeline {
                     echo "Stopping Odoo 17 and clearing space for Odoo 18 images..."
                     docker compose -f docker/docker-compose-odoo17.yml down -v
                     docker system prune -af --volumes
-                    echo "Current Disk Usage:"
                     df -h
                 '''
             }
@@ -114,28 +106,28 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    echo "Installing openupgradelib using break-system-packages flag..."
+                    echo "Installing openupgradelib..."
                     docker exec -u 0 odoo18-web pip install openupgradelib --break-system-packages
 
-                    echo "Deleting ALL base views (handling Inheritance constraints)..."
+                    echo "Executing Ordered View Cleanup to bypass Check Constraints..."
                     echo "
-                    /* 1. Break the inheritance chain so we can delete parent views */
-                    UPDATE ir_ui_view SET inherit_id = NULL 
-                    WHERE id IN (
+                    /* 1. Delete ALL child (extension) views that inherit from a base view */
+                    DELETE FROM ir_ui_view 
+                    WHERE inherit_id IN (
                         SELECT res_id FROM ir_model_data 
                         WHERE model='ir.ui.view' AND module='base'
                     );
 
-                    /* 2. Delete all views that belong to the 'base' module */
+                    /* 2. Delete the actual base views (parents) */
                     DELETE FROM ir_ui_view WHERE id IN (
                         SELECT res_id FROM ir_model_data 
                         WHERE model='ir.ui.view' AND module='base'
                     );
 
-                    /* 3. Remove the XML-ID mapping so Odoo recreates them cleanly */
+                    /* 3. Cleanup the XML-ID mapping */
                     DELETE FROM ir_model_data WHERE model='ir.ui.view' AND module='base';
 
-                    /* 4. Cleanup duplicate language rows that block migration */
+                    /* 4. Cleanup duplicate language rows */
                     DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');
                     " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
