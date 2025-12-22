@@ -8,7 +8,6 @@ pipeline {
     environment {
         DB_USER         = 'odoo'
         DB_PASSWORD     = 'odoo'
-        DB_SUPERUSER    = 'postgres'
         DB_PORT         = '5432'
 
         ODOO17_DB_HOST  = 'odoo17-db'
@@ -37,14 +36,6 @@ pipeline {
         stage('Checkout SCM') {
             steps {
                 checkout scm
-            }
-        }
-
-        stage('Docker Login') {
-            steps {
-                withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh 'echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin'
-                }
             }
         }
 
@@ -80,7 +71,7 @@ pipeline {
                     echo "Dumping Odoo 17 database..."
                     docker exec -i ${ODOO17_DB_HOST} pg_dump \
                         -U ${DB_USER} -F c -b -v -f /tmp/${ODOO17_DUMP} ${ODOO17_DB}
-                    docker cp ${ODOO17_DB_HOST}:/tmp/${ODOO17_DUMP} ./
+                    docker cp ${ODOO17_DB_HOST}:/tmp/${ODOO17_DUMP} ./ 
                     ls -lh ${ODOO17_DUMP}
                 '''
             }
@@ -123,11 +114,11 @@ pipeline {
             steps {
                 sh '''
                     echo "Waiting for Odoo 18 DB..."
-                    until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_SUPERUSER}; do sleep 5; done
+                    until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
 
                     echo "Dropping and recreating Odoo 18 DB..."
-                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_SUPERUSER} -c "DROP DATABASE IF EXISTS ${ODOO18_DB};"
-                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_SUPERUSER} -c "CREATE DATABASE ${ODOO18_DB} OWNER ${DB_USER};"
+                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -c "DROP DATABASE IF EXISTS ${ODOO18_DB};"
+                    docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -c "CREATE DATABASE ${ODOO18_DB};"
 
                     echo "Copying dump to Odoo 18 DB container..."
                     docker cp ${ODOO17_DUMP} ${ODOO18_DB_HOST}:/tmp/${ODOO17_DUMP}
