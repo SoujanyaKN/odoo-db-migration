@@ -25,11 +25,9 @@ pipeline {
         stage('Initial Docker Cleanup') {
             steps {
                 sh '''
-                  echo "Cleaning existing containers, volumes, and old dumps..."
                   docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
                   docker volume rm odoo17-db odoo18-db || true
                   docker system prune -af --volumes
-                  rm -f ${ODOO17_DUMP}
                   df -h
                 '''
             }
@@ -45,17 +43,15 @@ pipeline {
 
         stage('Start Odoo 17') {
             steps {
-                sh 'docker compose -f docker/docker-compose-odoo17.yml up -d'
+                sh 'docker-compose -f docker/docker-compose-odoo17.yml up -d'
             }
         }
 
-        stage('Init Odoo 17') {
+        stage('Init Dummy Data in Odoo 17') {
             steps {
                 sh '''
-                  echo "Waiting for Odoo 17 DB..."
                   until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
 
-                  echo "Initializing Odoo 17 (minimal modules)..."
                   docker exec odoo17-web odoo \
                     -d ${ODOO17_DB} \
                     -i base,web,mail,account,sale,purchase,stock \
@@ -77,13 +73,13 @@ pipeline {
             }
         }
 
-        /* ===== FREE SPACE AFTER DUMP ===== */
-
-        stage('Stop & Purge Odoo 17') {
+        stage('Stop & Purge Odoo 17 (FREE DISK)') {
             steps {
                 sh '''
                   echo "Stopping Odoo 17 and cleaning disk..."
-                  docker compose -f docker/docker-compose-odoo17.yml down -v
+                  docker-compose -f docker/docker-compose-odoo17.yml down -v
+                  docker rm -f odoo17-web odoo17-db || true
+                  docker volume rm odoo17-db || true
                   docker system prune -af --volumes
                   df -h
                 '''
@@ -112,8 +108,7 @@ pipeline {
         stage('Start Odoo 18') {
             steps {
                 sh '''
-                  docker compose -f docker/docker-compose-odoo18.yml up -d
-                  echo "Waiting for Odoo 18 DB..."
+                  docker-compose -f docker/docker-compose-odoo18.yml up -d
                   until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
                 '''
             }
@@ -122,11 +117,10 @@ pipeline {
         stage('Recreate EMPTY Odoo 18 DB') {
             steps {
                 sh '''
-                  echo "Dropping and recreating Odoo 18 DB..."
                   docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d postgres <<EOF
-DROP DATABASE IF EXISTS ${ODOO18_DB};
-CREATE DATABASE ${ODOO18_DB} OWNER ${DB_USER};
-EOF
+                  DROP DATABASE IF EXISTS ${ODOO18_DB};
+                  CREATE DATABASE ${ODOO18_DB} OWNER ${DB_USER};
+                  EOF
                 '''
             }
         }
@@ -134,19 +128,37 @@ EOF
         stage('Restore Odoo 17 Dump into Odoo 18 DB') {
             steps {
                 sh '''
-                  echo "Restoring Odoo 17 dump into Odoo 18 DB..."
-                  docker cp ${ODOO17_DUMP} ${ODOO18_DB_HOST}:/tmp/${ODOO17_DUMP}
-                  docker exec -i ${ODOO18_DB_HOST} pg_restore \
+                  echo "Restoring dump into Odoo 18 DB..."
+                  cat ${ODOO17_DUMP} | docker exec -i ${ODOO18_DB_HOST} pg_restore \
                     -U ${DB_USER} \
                     -d ${ODOO18_DB} \
                     --no-owner \
-                    --no-privileges \
-                    /tmp/${ODOO17_DUMP}
+                    --no-privileges
                 '''
             }
         }
 
-        /* ================= OPENUPGRADE CLEAN ================= */
+        stage('Cleanup duplicate languages') {
+            steps {
+                sh '''
+                  echo "Removing duplicate/unsupported languages..."
+                  docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
+-- Temporarily disable FK constraints
+SET session_replication_role = replica;
+
+-- Remove problematic languages
+DELETE FROM res_lang
+WHERE name IN ('Serbian (Cyrillic) / српски',
+               'Belarusian / Беларусьская мова');
+
+-- Re-enable FK constraints
+SET session_replication_role = DEFAULT;
+SQL
+                '''
+            }
+        }
+
+        /* ================= OPENUPGRADE RUN ================= */
 
         stage('OpenUpgrade - Base Migration') {
             steps {
@@ -171,14 +183,13 @@ EOF
         stage('OpenUpgrade - Remaining Modules') {
             steps {
                 sh '''
-                  echo "Upgrading remaining modules..."
                   docker exec odoo18-web odoo \
                     -d ${ODOO18_DB} \
                     --db_host=${ODOO18_DB_HOST} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
                     --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
-                    -u mail,account,sale,purchase,stock \
+                    -u web,mail,account,sale,purchase,stock \
                     --without-demo=all \
                     --stop-after-init
                 '''
