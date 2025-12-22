@@ -9,13 +9,15 @@ pipeline {
         DB_PORT         = '5432'
         ODOO17_DB_HOST  = 'odoo17-db'
         ODOO18_DB_HOST  = 'odoo18-db'
- 
+
         ODOO17_DB       = 'odoo17_db'
         ODOO18_DB       = 'odoo18_db'
- 
+
         ODOO17_DUMP     = 'odoo17.dump'
     }
+
     stages {
+
         stage('Cleanup Old Containers & Volumes') {
             steps {
                 sh '''
@@ -27,19 +29,19 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Checkout SCM') {
-            steps { 
-                checkout scm 
+            steps {
+                checkout scm
             }
         }
- 
+
         stage('Start Odoo 17') {
-            steps { 
-                sh 'docker-compose -f docker/docker-compose-odoo17.yml up -d' 
+            steps {
+                sh 'docker compose -f docker/docker-compose-odoo17.yml up -d'
             }
         }
- 
+
         stage('Wait & Init Odoo 17 (without demo data)') {
             steps {
                 sh '''
@@ -56,7 +58,7 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Dump Odoo 17 DB') {
             steps {
                 sh '''
@@ -66,43 +68,43 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Stop Odoo 17') {
             steps {
                 sh '''
-                    docker-compose -f docker/docker-compose-odoo17.yml down -v
+                    docker compose -f docker/docker-compose-odoo17.yml down -v
                     docker system prune -af --volumes
                     df -h; free -h
                 '''
             }
         }
- 
+
         stage('Prepare OpenUpgrade 18 (shallow clone)') {
             steps {
                 sh '''
                     if [ ! -d docker/OpenUpgrade-18.0 ]; then
                         git clone --depth 1 --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                     fi
- 
+
                     mkdir -p docker/OpenUpgrade-18.0/addons
                     rsync -a --delete docker/OpenUpgrade-18.0/openupgrade_framework/ docker/OpenUpgrade-18.0/addons/openupgrade_framework/
                     test -f docker/OpenUpgrade-18.0/addons/openupgrade_framework/__manifest__.py
                 '''
             }
         }
- 
+
         stage('Start Odoo 18') {
-            steps { 
-                sh 'docker-compose -f docker/docker-compose-odoo18.yml up -d --remove-orphans' 
+            steps {
+                sh 'docker compose -f docker/docker-compose-odoo18.yml up -d --remove-orphans'
             }
         }
- 
+
         stage('Wait for Odoo 18 DB') {
-            steps { 
-                sh 'until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done' 
+            steps {
+                sh 'until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done'
             }
         }
- 
+
         stage('Restore DB into Odoo 18') {
             steps {
                 sh '''
@@ -112,17 +114,17 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Run OpenUpgrade Migration - Base First ✅') {
             steps {
                 sh '''
                     set -e
- 
+
                     echo "Cleaning duplicate/legacy language rows..."
                     echo "DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');" \
                         | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
- 
-                    echo "Removing conflicting base.view_decimal_precision_tree via ir_model_data..."
+
+                    echo "Removing conflicting base.view_decimal_precision_tree..."
                     echo "
                     WITH to_del AS (
                         SELECT v.id
@@ -135,26 +137,26 @@ pipeline {
                     DELETE FROM ir_model_data
                      WHERE model='ir.ui.view' AND module='base' AND name='view_decimal_precision_tree';
                     " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
- 
-                    echo "Upgrading base only..."
+
                     docker exec odoo18-web odoo \
                         -d ${ODOO18_DB} \
                         --db_host=${ODOO18_DB_HOST} \
-                        --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
                         --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
                         -u base --without-demo=all --stop-after-init
                 '''
             }
         }
- 
+
         stage('Run OpenUpgrade Migration - Remaining Modules ✅') {
             steps {
                 sh '''
-                    echo "Upgrading remaining modules..."
                     docker exec odoo18-web odoo \
                         -d ${ODOO18_DB} \
                         --db_host=${ODOO18_DB_HOST} \
-                        --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
                         --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
                         --load=base,web,openupgrade_framework \
                         -u web,mail,account,stock,sale,purchase \
@@ -162,11 +164,10 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Load Dummy Data into Odoo 18 (Optional)') {
             steps {
                 sh '''
-                    echo "Loading demo/dummy data in Odoo 18..."
                     docker exec odoo18-web odoo \
                         -d ${ODOO18_DB} \
                         -i sale,purchase,stock,account,mail,web \
@@ -178,23 +179,23 @@ pipeline {
                 '''
             }
         }
- 
+
         stage('Post checks') {
             steps {
                 sh '''
                     docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"
-                    echo "Open Odoo 18 UI at http://<EC2-IP>:8070 -> Settings -> About for version"
                     free -h
                 '''
             }
         }
     }
+
     post {
-        success { 
-            echo "✅ Odoo 17 → 18 migration completed successfully with demo data" 
+        success {
+            echo "✅ Odoo 17 → 18 migration completed successfully"
         }
-        failure { 
-            echo "❌ Migration failed — check logs" 
+        failure {
+            echo "❌ Migration failed — check logs"
         }
     }
 }
