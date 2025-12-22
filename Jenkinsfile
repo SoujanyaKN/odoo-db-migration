@@ -25,10 +25,9 @@ pipeline {
                     docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
                     
                     # Remove all unused Docker data (containers, networks, images, and volumes)
-                    # -a removes all unused images, not just dangling ones
                     docker system prune -af --volumes
                     
-                    # Optional: Clean up the workspace dump file if it exists from a previous failed run
+                    # Clean up the workspace dump file if it exists from a previous run
                     rm -f ${ODOO17_DUMP}
                     
                     echo "Disk space after cleanup:"
@@ -118,16 +117,29 @@ pipeline {
                     echo "Installing openupgradelib using break-system-packages flag..."
                     docker exec -u 0 odoo18-web pip install openupgradelib --break-system-packages
 
-                    echo "Deleting ALL base views to prevent version conflicts..."
+                    echo "Deleting ALL base views (handling Inheritance constraints)..."
                     echo "
+                    /* 1. Break the inheritance chain so we can delete parent views */
+                    UPDATE ir_ui_view SET inherit_id = NULL 
+                    WHERE id IN (
+                        SELECT res_id FROM ir_model_data 
+                        WHERE model='ir.ui.view' AND module='base'
+                    );
+
+                    /* 2. Delete all views that belong to the 'base' module */
                     DELETE FROM ir_ui_view WHERE id IN (
                         SELECT res_id FROM ir_model_data 
                         WHERE model='ir.ui.view' AND module='base'
                     );
+
+                    /* 3. Remove the XML-ID mapping so Odoo recreates them cleanly */
                     DELETE FROM ir_model_data WHERE model='ir.ui.view' AND module='base';
+
+                    /* 4. Cleanup duplicate language rows that block migration */
                     DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');
                     " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
+                    echo "Starting Base Migration..."
                     docker exec odoo18-web odoo \
                         -d ${ODOO18_DB} \
                         --db_host=${ODOO18_DB_HOST} \
