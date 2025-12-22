@@ -17,13 +17,14 @@ pipeline {
     }
 
     stages {
-        stage('Cleanup Old Containers & Volumes') {
+        stage('Initial Cleanup') {
             steps {
                 sh '''
-                    echo "Cleaning old containers & volumes"
+                    echo "Cleaning environment before starting..."
                     docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
-                    docker volume rm odoo17-db odoo18-db || true
-                    docker system prune -af --volumes
+                    docker volume prune -f
+                    docker system prune -f
+                    df -h
                 '''
             }
         }
@@ -62,9 +63,18 @@ pipeline {
             }
         }
 
-        stage('Stop Odoo 17') {
+        stage('Mid-Pipeline Disk Cleanup 🧹') {
             steps {
-                sh 'docker compose -f docker/docker-compose-odoo17.yml down -v'
+                sh '''
+                    echo "Stopping Odoo 17 and clearing space for Odoo 18 images..."
+                    docker compose -f docker/docker-compose-odoo17.yml down -v
+                    
+                    # Remove all unused images, stopped containers, and volumes to free space
+                    docker system prune -af --volumes
+                    
+                    echo "Current Disk Usage:"
+                    df -h
+                '''
             }
         }
 
@@ -100,25 +110,19 @@ pipeline {
             steps {
                 sh '''
                     set -e
-
-                    echo "Installing openupgradelib inside the container..."
+                    echo "Installing openupgradelib..."
                     docker exec -u 0 odoo18-web pip install openupgradelib
 
-                    echo "Deep Cleaning: Deleting ALL base views to prevent version conflicts..."
+                    echo "Deleting ALL base views to prevent version conflicts..."
                     echo "
-                    /* Delete all views that belong to the 'base' module */
                     DELETE FROM ir_ui_view WHERE id IN (
                         SELECT res_id FROM ir_model_data 
                         WHERE model='ir.ui.view' AND module='base'
                     );
-                    /* Remove their mapping so Odoo recreates them cleanly */
                     DELETE FROM ir_model_data WHERE model='ir.ui.view' AND module='base';
-                    
-                    /* Cleanup duplicate language rows */
                     DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');
                     " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
-                    echo "Starting Base Migration..."
                     docker exec odoo18-web odoo \
                         -d ${ODOO18_DB} \
                         --db_host=${ODOO18_DB_HOST} \
