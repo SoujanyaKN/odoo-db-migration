@@ -68,10 +68,7 @@ pipeline {
                 sh '''
                     echo "Stopping Odoo 17 and clearing space for Odoo 18 images..."
                     docker compose -f docker/docker-compose-odoo17.yml down -v
-                    
-                    # Remove all unused images, stopped containers, and volumes to free space
                     docker system prune -af --volumes
-                    
                     echo "Current Disk Usage:"
                     df -h
                 '''
@@ -110,8 +107,8 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    echo "Installing openupgradelib..."
-                    docker exec -u 0 odoo18-web pip install openupgradelib
+                    echo "Installing openupgradelib using break-system-packages flag..."
+                    docker exec -u 0 odoo18-web pip install openupgradelib --break-system-packages
 
                     echo "Deleting ALL base views to prevent version conflicts..."
                     echo "
