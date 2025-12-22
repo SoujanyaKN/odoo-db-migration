@@ -43,7 +43,7 @@ pipeline {
 
         stage('Start Odoo 17') {
             steps {
-                sh 'docker-compose -f docker/docker-compose-odoo17.yml up -d'
+                sh 'docker compose -f docker/docker-compose-odoo17.yml up -d'
             }
         }
 
@@ -73,11 +73,13 @@ pipeline {
             }
         }
 
+        /* ===== FREE SPACE AFTER DUMP ===== */
+
         stage('Stop & Purge Odoo 17 (FREE DISK)') {
             steps {
                 sh '''
                   echo "Stopping Odoo 17 and cleaning disk..."
-                  docker-compose -f docker/docker-compose-odoo17.yml down -v
+                  docker compose -f docker/docker-compose-odoo17.yml down -v
                   docker rm -f odoo17-web odoo17-db || true
                   docker volume rm odoo17-db || true
                   docker system prune -af --volumes
@@ -108,7 +110,7 @@ pipeline {
         stage('Start Odoo 18') {
             steps {
                 sh '''
-                  docker-compose -f docker/docker-compose-odoo18.yml up -d
+                  docker compose -f docker/docker-compose-odoo18.yml up -d
                   until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
                 '''
             }
@@ -138,18 +140,39 @@ pipeline {
             }
         }
 
-        stage('Cleanup duplicate languages') {
+        /* ================= OPENUPGRADE CLEANUP ================= */
+
+        stage('OpenUpgrade - Clean Base Views & Duplicate Languages') {
             steps {
                 sh '''
-                  echo "Removing duplicate/unsupported languages..."
-                  docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
--- Temporarily disable FK constraints
+                  echo "Cleaning base views and duplicate languages safely..."
+                  docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1 <<SQL
+BEGIN;
+
+-- Disable FK temporarily
 SET session_replication_role = replica;
 
--- Remove problematic languages
+-- Delete child views first
+DELETE FROM ir_ui_view
+WHERE inherit_id IS NOT NULL;
+
+-- Delete base views
+DELETE FROM ir_ui_view
+WHERE id IN (
+    SELECT res_id FROM ir_model_data
+    WHERE model='ir.ui.view' AND module='base'
+);
+
+-- Delete corresponding ir_model_data entries
+DELETE FROM ir_model_data
+WHERE model='ir.ui.view' AND module='base';
+
+-- Delete problematic duplicate languages
 DELETE FROM res_lang
 WHERE name IN ('Serbian (Cyrillic) / српски',
                'Belarusian / Беларусьская мова');
+
+COMMIT;
 
 -- Re-enable FK constraints
 SET session_replication_role = DEFAULT;
@@ -160,20 +183,16 @@ SQL
 
         /* ================= OPENUPGRADE RUN ================= */
 
-        stage('OpenUpgrade - Base Migration') {
+        stage('OpenUpgrade - Base Module') {
             steps {
                 sh '''
-                  echo "Installing openupgradelib..."
-                  docker exec -u 0 odoo18-web pip install openupgradelib --break-system-packages
-
-                  echo "Running OpenUpgrade base migration..."
                   docker exec odoo18-web odoo \
                     -d ${ODOO18_DB} \
                     --db_host=${ODOO18_DB_HOST} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
                     --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
-                    -u base,web,openupgrade_framework \
+                    -u base \
                     --without-demo=all \
                     --stop-after-init
                 '''
