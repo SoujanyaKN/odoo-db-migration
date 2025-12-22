@@ -104,30 +104,6 @@ pipeline {
             }
         }
 
-        stage('Check Disk Space Before Odoo 18 💽') {
-            steps {
-                sh '''
-                    MIN_SPACE_GB=5
-                    AVAILABLE_SPACE_GB=$(df / | tail -1 | awk '{print $4}')
-                    AVAILABLE_SPACE_GB=$((AVAILABLE_SPACE_GB/1024/1024)) # convert KB to GB
-                    echo "Available disk space: ${AVAILABLE_SPACE_GB} GB"
-
-                    if [ "${AVAILABLE_SPACE_GB}" -lt "${MIN_SPACE_GB}" ]; then
-                        echo "⚠️ Not enough disk space. Attempting to free space..."
-                        docker system prune -af --volumes
-                        AVAILABLE_SPACE_GB=$(df / | tail -1 | awk '{print $4}')
-                        AVAILABLE_SPACE_GB=$((AVAILABLE_SPACE_GB/1024/1024))
-                        echo "New available space: ${AVAILABLE_SPACE_GB} GB"
-
-                        if [ "${AVAILABLE_SPACE_GB}" -lt "${MIN_SPACE_GB}" ]; then
-                            echo "❌ Still not enough space. At least ${MIN_SPACE_GB} GB required."
-                            exit 1
-                        fi
-                    fi
-                '''
-            }
-        }
-
         stage('Start Odoo 18') {
             steps {
                 sh 'docker compose -f docker/docker-compose-odoo18.yml up -d --remove-orphans'
