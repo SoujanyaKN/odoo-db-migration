@@ -21,10 +21,10 @@ pipeline {
 
     stages {
 
-        stage('Environment Cleanup 🧨') {
+        stage('Total Environment Cleanup 🧨') {
             steps {
                 sh '''
-                    echo "Cleaning all containers, volumes, and old dumps..."
+                    echo "Cleaning all containers, volumes and old dumps..."
                     docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
                     docker system prune -af --volumes
                     rm -f ${ODOO17_DUMP}
@@ -53,9 +53,13 @@ pipeline {
                     until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
 
                     echo "Initializing Odoo 17 (no demo data)..."
-                    docker exec odoo17-web odoo -d ${ODOO17_DB} -i base,sale,purchase,stock,account,mail,web \
+                    docker exec odoo17-web odoo \
+                        -d ${ODOO17_DB} \
+                        -i base,sale,purchase,stock,account,mail,web \
                         --without-demo=all \
-                        --db_host=${ODOO17_DB_HOST} --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
+                        --db_host=${ODOO17_DB_HOST} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
                         --stop-after-init
                 '''
             }
@@ -65,14 +69,15 @@ pipeline {
             steps {
                 sh '''
                     echo "Dumping Odoo 17 database..."
-                    docker exec -i ${ODOO17_DB_HOST} pg_dump -U ${DB_USER} -F c -b -v -f /tmp/${ODOO17_DUMP} ${ODOO17_DB}
+                    docker exec -i ${ODOO17_DB_HOST} pg_dump \
+                        -U ${DB_USER} -F c -b -v -f /tmp/${ODOO17_DUMP} ${ODOO17_DB}
                     docker cp ${ODOO17_DB_HOST}:/tmp/${ODOO17_DUMP} ./
                     ls -lh ${ODOO17_DUMP}
                 '''
             }
         }
 
-        stage('Mid-Pipeline Cleanup 🧹') {
+        stage('Mid-Pipeline Disk Cleanup 🧹') {
             steps {
                 sh '''
                     echo "Stopping Odoo 17 and freeing disk..."
@@ -87,26 +92,37 @@ pipeline {
             steps {
                 sh '''
                     if [ ! -d docker/OpenUpgrade-18.0 ]; then
-                        git clone --depth 1 --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
+                        git clone --depth 1 --branch 18.0 \
+                          https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                     fi
 
                     mkdir -p docker/OpenUpgrade-18.0/addons
-                    rsync -a --delete docker/OpenUpgrade-18.0/openupgrade_framework/ docker/OpenUpgrade-18.0/addons/openupgrade_framework/
+                    rsync -a --delete \
+                      docker/OpenUpgrade-18.0/openupgrade_framework/ \
+                      docker/OpenUpgrade-18.0/addons/openupgrade_framework/
                 '''
             }
         }
 
-        stage('Check Disk Space Before Odoo 18') {
+        stage('Check Disk Space Before Odoo 18 💽') {
             steps {
                 sh '''
                     MIN_SPACE_GB=5
                     AVAILABLE_SPACE_GB=$(df / | tail -1 | awk '{print $4}')
                     AVAILABLE_SPACE_GB=$((AVAILABLE_SPACE_GB/1024/1024)) # convert KB to GB
-
                     echo "Available disk space: ${AVAILABLE_SPACE_GB} GB"
+
                     if [ "${AVAILABLE_SPACE_GB}" -lt "${MIN_SPACE_GB}" ]; then
-                        echo "❌ Not enough disk space. At least ${MIN_SPACE_GB} GB required."
-                        exit 1
+                        echo "⚠️ Not enough disk space. Attempting to free space..."
+                        docker system prune -af --volumes
+                        AVAILABLE_SPACE_GB=$(df / | tail -1 | awk '{print $4}')
+                        AVAILABLE_SPACE_GB=$((AVAILABLE_SPACE_GB/1024/1024))
+                        echo "New available space: ${AVAILABLE_SPACE_GB} GB"
+
+                        if [ "${AVAILABLE_SPACE_GB}" -lt "${MIN_SPACE_GB}" ]; then
+                            echo "❌ Still not enough space. At least ${MIN_SPACE_GB} GB required."
+                            exit 1
+                        fi
                     fi
                 '''
             }
@@ -128,20 +144,22 @@ pipeline {
                     docker cp ${ODOO17_DUMP} ${ODOO18_DB_HOST}:/tmp/${ODOO17_DUMP}
 
                     echo "Restoring dump into Odoo 18 DB..."
-                    docker exec -i ${ODOO18_DB_HOST} pg_restore -U ${DB_USER} -d ${ODOO18_DB} --clean --if-exists --no-owner --no-acl /tmp/${ODOO17_DUMP}
+                    docker exec -i ${ODOO18_DB_HOST} pg_restore \
+                        -U ${DB_USER} -d ${ODOO18_DB} --clean --if-exists --no-owner --no-acl /tmp/${ODOO17_DUMP}
                 '''
             }
         }
 
-        stage('Run OpenUpgrade Migration - Base') {
+        stage('Run OpenUpgrade Migration - Base First ✅') {
             options { timeout(time: 30, unit: 'MINUTES') }
             steps {
                 sh '''
                     set -e
+
                     echo "Installing openupgradelib..."
                     docker exec -u 0 odoo18-web pip install openupgradelib --break-system-packages
 
-                    echo "Disabling FK constraints for cleanup..."
+                    echo "Disabling FK constraints..."
                     echo "SET session_replication_role = replica;" \
                         | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB}
 
@@ -158,7 +176,10 @@ pipeline {
                     WHERE model='ir.ui.view' AND module='base';
 
                     DELETE FROM res_lang
-                    WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');
+                    WHERE name IN (
+                        'Serbian (Cyrillic) / српски',
+                        'Belarusian / Беларусьская мова'
+                    );
                     COMMIT;
                     " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
@@ -167,23 +188,31 @@ pipeline {
                         | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB}
 
                     echo "Running base migration..."
-                    docker exec odoo18-web odoo -d ${ODOO18_DB} \
-                        --db_host=${ODOO18_DB_HOST} --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
+                    docker exec odoo18-web odoo \
+                        -d ${ODOO18_DB} \
+                        --db_host=${ODOO18_DB_HOST} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
                         --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
-                        --load=base,web,openupgrade_framework -u base --without-demo=all --stop-after-init
+                        --load=base,web,openupgrade_framework \
+                        -u base --without-demo=all --stop-after-init
                 '''
             }
         }
 
-        stage('Run OpenUpgrade Migration - Remaining Modules') {
+        stage('Run OpenUpgrade Migration - Remaining Modules ✅') {
             options { timeout(time: 30, unit: 'MINUTES') }
             steps {
                 sh '''
                     echo "Upgrading remaining modules..."
-                    docker exec odoo18-web odoo -d ${ODOO18_DB} \
-                        --db_host=${ODOO18_DB_HOST} --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
+                    docker exec odoo18-web odoo \
+                        -d ${ODOO18_DB} \
+                        --db_host=${ODOO18_DB_HOST} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
                         --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
-                        --load=base,web,openupgrade_framework -u web,mail,account,stock,sale,purchase \
+                        --load=base,web,openupgrade_framework \
+                        -u web,mail,account,stock,sale,purchase \
                         --without-demo=all --stop-after-init
                 '''
             }
