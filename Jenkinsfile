@@ -24,7 +24,6 @@ pipeline {
                     docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
                     docker volume rm odoo17-db odoo18-db || true
                     docker system prune -af --volumes
-                    df -h; free -h
                 '''
             }
         }
@@ -41,11 +40,10 @@ pipeline {
             }
         }
 
-        stage('Wait & Init Odoo 17 (without demo data)') {
+        stage('Wait & Init Odoo 17') {
             steps {
                 sh '''
                     until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
-                    echo "Installing base and modules in Odoo 17 (no demo data)..."
                     docker exec odoo17-web odoo \
                         -d ${ODOO17_DB} \
                         -i base,sale,purchase,stock,account,mail,web \
@@ -60,31 +58,22 @@ pipeline {
 
         stage('Dump Odoo 17 DB') {
             steps {
-                sh '''
-                    echo "Dumping Odoo 17 DB..."
-                    docker exec -i ${ODOO17_DB_HOST} pg_dump -U ${DB_USER} -F c ${ODOO17_DB} > ${ODOO17_DUMP}
-                    ls -lh ${ODOO17_DUMP}
-                '''
+                sh 'docker exec -i ${ODOO17_DB_HOST} pg_dump -U ${DB_USER} -F c ${ODOO17_DB} > ${ODOO17_DUMP}'
             }
         }
 
         stage('Stop Odoo 17') {
             steps {
-                sh '''
-                    docker compose -f docker/docker-compose-odoo17.yml down -v
-                    docker system prune -af --volumes
-                    df -h; free -h
-                '''
+                sh 'docker compose -f docker/docker-compose-odoo17.yml down -v'
             }
         }
 
-        stage('Prepare OpenUpgrade 18 (shallow clone)') {
+        stage('Prepare OpenUpgrade 18') {
             steps {
                 sh '''
                     if [ ! -d docker/OpenUpgrade-18.0 ]; then
                         git clone --depth 1 --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                     fi
-
                     mkdir -p docker/OpenUpgrade-18.0/addons
                     rsync -a --delete docker/OpenUpgrade-18.0/openupgrade_framework/ docker/OpenUpgrade-18.0/addons/openupgrade_framework/
                 '''
@@ -97,16 +86,10 @@ pipeline {
             }
         }
 
-        stage('Wait for Odoo 18 DB') {
-            steps {
-                sh 'until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done'
-            }
-        }
-
         stage('Restore DB into Odoo 18') {
             steps {
                 sh '''
-                    echo "Restoring Odoo 17 DB dump into Odoo 18..."
+                    until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
                     cat ${ODOO17_DUMP} | docker exec -i ${ODOO18_DB_HOST} pg_restore \
                         -U ${DB_USER} -d ${ODOO18_DB} --clean --if-exists
                 '''
@@ -118,28 +101,24 @@ pipeline {
                 sh '''
                     set -e
 
-                    echo "Cleaning duplicate/legacy language rows..."
-                    echo "DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');" \
-                        | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
+                    echo "Installing openupgradelib inside the container..."
+                    docker exec -u 0 odoo18-web pip install openupgradelib
 
-                    echo "Deleting conflicting Odoo 17 views via ir_model_data..."
+                    echo "Deep Cleaning: Deleting ALL base views to prevent version conflicts..."
                     echo "
-                    /* 1. Delete the actual view records using a join on ir_model_data */
+                    /* Delete all views that belong to the 'base' module */
                     DELETE FROM ir_ui_view WHERE id IN (
                         SELECT res_id FROM ir_model_data 
-                        WHERE model='ir.ui.view' 
-                        AND module='base' 
-                        AND name IN ('action_view_tree', 'view_decimal_precision_tree')
+                        WHERE model='ir.ui.view' AND module='base'
                     );
+                    /* Remove their mapping so Odoo recreates them cleanly */
+                    DELETE FROM ir_model_data WHERE model='ir.ui.view' AND module='base';
                     
-                    /* 2. Delete the XML ID mappings */
-                    DELETE FROM ir_model_data 
-                    WHERE model='ir.ui.view' 
-                    AND module='base' 
-                    AND name IN ('action_view_tree', 'view_decimal_precision_tree');
+                    /* Cleanup duplicate language rows */
+                    DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');
                     " | docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1
 
-                    echo "Starting Base Migration with OpenUpgrade Framework loaded..."
+                    echo "Starting Base Migration..."
                     docker exec odoo18-web odoo \
                         -d ${ODOO18_DB} \
                         --db_host=${ODOO18_DB_HOST} \
@@ -167,23 +146,10 @@ pipeline {
                 '''
             }
         }
-
-        stage('Post checks') {
-            steps {
-                sh '''
-                    docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"
-                    free -h
-                '''
-            }
-        }
     }
 
     post {
-        success {
-            echo "✅ Odoo 17 → 18 migration completed successfully"
-        }
-        failure {
-            echo "❌ Migration failed — check logs"
-        }
+        success { echo "✅ Odoo 17 → 18 migration successful" }
+        failure { echo "❌ Migration failed" }
     }
 }
