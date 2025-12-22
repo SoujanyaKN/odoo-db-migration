@@ -43,7 +43,7 @@ pipeline {
 
         stage('Start Odoo 17') {
             steps {
-                sh 'docker-compose -f docker/docker-compose-odoo17.yml up -d'
+                sh 'docker compose -f docker/docker-compose-odoo17.yml up -d'
             }
         }
 
@@ -79,7 +79,7 @@ pipeline {
             steps {
                 sh '''
                   echo "Stopping Odoo 17 and cleaning disk..."
-                  docker-compose -f docker/docker-compose-odoo17.yml down -v
+                  docker compose -f docker/docker-compose-odoo17.yml down -v
                   docker rm -f odoo17-web odoo17-db || true
                   docker volume rm odoo17-db || true
                   docker system prune -af --volumes
@@ -110,7 +110,7 @@ pipeline {
         stage('Start Odoo 18') {
             steps {
                 sh '''
-                  docker-compose -f docker/docker-compose-odoo18.yml up -d
+                  docker compose -f docker/docker-compose-odoo18.yml up -d
                   until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
                 '''
             }
