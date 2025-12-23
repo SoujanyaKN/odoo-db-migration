@@ -43,23 +43,18 @@ pipeline {
 
         stage('Start Odoo 17') {
             steps {
-                sh '''
-                  docker compose -f docker/docker-compose-odoo17.yml up -d
-                '''
+                sh 'docker compose -f docker/docker-compose-odoo17.yml up -d'
             }
         }
 
-        stage('Init Odoo 17 (BASE ONLY)') {
+        stage('Init Dummy Data in Odoo 17') {
             steps {
                 sh '''
-                  echo "Waiting for Odoo 17 DB..."
                   until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
 
-                  echo "Initializing Odoo 17 with BASE module only (safe init)..."
                   docker exec odoo17-web odoo \
                     -d ${ODOO17_DB} \
-                    -i base \
-                    --without-demo=all \
+                    -i base,web,mail,account,sale,purchase,stock \
                     --db_host=${ODOO17_DB_HOST} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
@@ -72,18 +67,18 @@ pipeline {
             steps {
                 sh '''
                   echo "Dumping Odoo 17 database..."
-                  docker exec -i ${ODOO17_DB_HOST} pg_dump \
-                    -U ${DB_USER} \
-                    -F c ${ODOO17_DB} > ${ODOO17_DUMP}
-
+                  docker exec -i ${ODOO17_DB_HOST} pg_dump -U ${DB_USER} -F c ${ODOO17_DB} > ${ODOO17_DUMP}
                   ls -lh ${ODOO17_DUMP}
                 '''
             }
         }
 
-        stage('Stop & Purge Odoo 17 (Free Disk)') {
+        /* ===== FREE SPACE AFTER DUMP ===== */
+
+        stage('Stop & Purge Odoo 17 (FREE DISK)') {
             steps {
                 sh '''
+                  echo "Stopping Odoo 17 and cleaning disk..."
                   docker compose -f docker/docker-compose-odoo17.yml down -v
                   docker rm -f odoo17-web odoo17-db || true
                   docker volume rm odoo17-db || true
@@ -99,8 +94,7 @@ pipeline {
             steps {
                 sh '''
                   if [ ! -d docker/OpenUpgrade-18.0 ]; then
-                    git clone --depth 1 --branch 18.0 \
-                      https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
+                    git clone --depth 1 --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                   fi
 
                   mkdir -p docker/OpenUpgrade-18.0/addons
@@ -128,7 +122,7 @@ pipeline {
                   docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d postgres <<EOF
                   DROP DATABASE IF EXISTS ${ODOO18_DB};
                   CREATE DATABASE ${ODOO18_DB} OWNER ${DB_USER};
-EOF
+                  EOF
                 '''
             }
         }
@@ -146,31 +140,64 @@ EOF
             }
         }
 
-        /* ================= OPENUPGRADE DB CLEAN ================= */
+        /* ===== PATCH <list> TO <tree> ===== */
+
+        stage('Patch <list> to <tree> in OpenUpgrade') {
+            steps {
+                sh '''
+                  echo "Patching <list> → <tree> in OpenUpgrade addons..."
+                  OPENUPGRADE_DIR="docker/OpenUpgrade-18.0/addons"
+
+                  # Backup original files
+                  BACKUP_DIR="${OPENUPGRADE_DIR}_backup_$(date +%Y%m%d_%H%M%S)"
+                  cp -r "$OPENUPGRADE_DIR" "$BACKUP_DIR"
+
+                  # Replace opening <list ...> with <tree ...>
+                  find "$OPENUPGRADE_DIR" -type f -name "*.xml" -exec sed -i 's/<list /<tree /g' {} \;
+
+                  # Replace closing </list> with </tree>
+                  find "$OPENUPGRADE_DIR" -type f -name "*.xml" -exec sed -i 's/<\\/list>/<\\/tree>/g' {} \;
+
+                  echo "✅ Patch completed. Backup saved at $BACKUP_DIR"
+                '''
+            }
+        }
+
+        /* ================= OPENUPGRADE CLEANUP ================= */
 
         stage('OpenUpgrade - Clean Base Views & Duplicate Languages') {
             steps {
                 sh '''
-                  docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
+                  echo "Cleaning base views and duplicate languages safely..."
+                  docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1 <<SQL
 BEGIN;
+
+-- Disable FK temporarily
 SET session_replication_role = replica;
 
-DELETE FROM ir_ui_view WHERE inherit_id IS NOT NULL;
+-- Delete child views first
+DELETE FROM ir_ui_view
+WHERE inherit_id IS NOT NULL;
+
+-- Delete base views
 DELETE FROM ir_ui_view
 WHERE id IN (
     SELECT res_id FROM ir_model_data
     WHERE model='ir.ui.view' AND module='base'
 );
+
+-- Delete corresponding ir_model_data entries
 DELETE FROM ir_model_data
 WHERE model='ir.ui.view' AND module='base';
 
+-- Delete problematic duplicate languages
 DELETE FROM res_lang
-WHERE name IN (
-    'Serbian (Cyrillic) / српски',
-    'Belarusian / Беларусьская мова'
-);
+WHERE name IN ('Serbian (Cyrillic) / српски',
+               'Belarusian / Беларусьская мова');
 
 COMMIT;
+
+-- Re-enable FK constraints
 SET session_replication_role = DEFAULT;
 SQL
                 '''
@@ -195,7 +222,7 @@ SQL
             }
         }
 
-        stage('OpenUpgrade - Business Modules') {
+        stage('OpenUpgrade - Remaining Modules') {
             steps {
                 sh '''
                   docker exec odoo18-web odoo \
@@ -217,8 +244,8 @@ SQL
             steps {
                 sh '''
                   docker ps
+                  echo "✅ Open browser → Settings → About → Version should show Odoo 18"
                   df -h
-                  echo "✅ Migration completed. Odoo version should be 18."
                 '''
             }
         }
