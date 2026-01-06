@@ -1,63 +1,59 @@
 pipeline {
     agent any
 
-    environment {
-        // Git
-        GIT_REPO = 'https://github.com/SoujanyaKN/odoo-db-migration.git'
-        BRANCH   = 'main'
-
-        // DB creds
-        DB_USER     = 'odoo'
-        DB_PASSWORD = 'odoo'
-
-        // Odoo 17
-        ODOO17_DB_CONTAINER = 'odoo17-db'
-        ODOO17_DB           = 'odoo17_db'
-        ODOO17_DUMP         = 'odoo17.dump'
-
-        // Odoo 18
-        ODOO18_DB_CONTAINER = 'odoo18-db'
-        ODOO18_DB           = 'odoo18_db'
-    }
-
     options {
         timestamps()
-        disableConcurrentBuilds()
+    }
+
+    environment {
+        DB_USER         = 'odoo'
+        DB_PASSWORD     = 'odoo'
+        DB_PORT         = '5432'
+
+        ODOO17_DB_HOST  = 'odoo17-db'
+        ODOO18_DB_HOST  = 'odoo18-db'
+
+        ODOO17_DB       = 'odoo17_db'
+        ODOO18_DB       = 'odoo18_db'
+
+        ODOO17_DUMP     = 'odoo17.dump'
+
+        MIN_DISK_GB     = 5   // Minimum required free space in GB
     }
 
     stages {
 
-        /* =======================
-           TOTAL ENV CLEANUP
-        ======================= */
+        stage('Pre-Check Disk Space ⚠️') {
+            steps {
+                sh '''
+                    echo "Checking free disk space..."
+                    AVAILABLE=$(df / | tail -1 | awk '{print $4}')
+                    AVAILABLE_GB=$((AVAILABLE / 1024 / 1024))
+                    echo "Available space: ${AVAILABLE_GB} GB"
+                    if [ ${AVAILABLE_GB} -lt ${MIN_DISK_GB} ]; then
+                        echo "❌ Not enough disk space (<${MIN_DISK_GB} GB). Cleaning old Jenkins workspace & Docker..."
+                        rm -rf /var/lib/jenkins/workspace/* /var/lib/jenkins/.cache /var/lib/jenkins/tmp || true
+                        docker system prune -af --volumes || true
+                    fi
+                '''
+            }
+        }
+
         stage('Total Environment Cleanup 🧨') {
             steps {
                 sh '''
-                echo "Stopping all Odoo containers..."
-                docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
-
-                echo "Removing unused images, volumes, networks..."
-                docker system prune -af --volumes || true
-
-                rm -f ${ODOO17_DUMP}
-                df -h
+                    echo "Stopping & removing old containers, volumes, and dumps..."
+                    docker rm -f odoo17-web odoo17-db odoo18-web odoo18-db || true
+                    docker system prune -af --volumes
+                    rm -f ${ODOO17_DUMP}
+                    df -h
                 '''
             }
         }
 
-        stage('Checkout') {
+        stage('Checkout SCM') {
             steps {
-                cleanWs()
-                git branch: "${BRANCH}", url: "${GIT_REPO}"
-            }
-        }
-
-        stage('Verify Docker') {
-            steps {
-                sh '''
-                docker --version
-                docker compose version || docker-compose --version
-                '''
+                checkout scm
             }
         }
 
@@ -67,12 +63,32 @@ pipeline {
             }
         }
 
-        stage('Wait for Odoo 17 DB') {
+        stage('Wait & Init Odoo 17') {
+            options { timeout(time: 30, unit: 'MINUTES') }
             steps {
                 sh '''
-                until docker exec ${ODOO17_DB_CONTAINER} pg_isready -U ${DB_USER}; do
-                    sleep 5
-                done
+                    echo "Waiting for Odoo 17 DB..."
+                    until docker exec ${ODOO17_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
+
+                    echo "Initializing base modules..."
+                    docker exec odoo17-web odoo \
+                        -d ${ODOO17_DB} \
+                        -i base,web,mail \
+                        --without-demo=all \
+                        --db_host=${ODOO17_DB_HOST} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
+                        --stop-after-init
+
+                    echo "Initializing remaining modules..."
+                    docker exec odoo17-web odoo \
+                        -d ${ODOO17_DB} \
+                        -i sale,purchase,stock,account \
+                        --without-demo=all \
+                        --db_host=${ODOO17_DB_HOST} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
+                        --stop-after-init
                 '''
             }
         }
@@ -80,27 +96,38 @@ pipeline {
         stage('Dump Odoo 17 DB') {
             steps {
                 sh '''
-                echo "Dumping Odoo 17 database..."
-                docker exec ${ODOO17_DB_CONTAINER} pg_dump \
-                    -U ${DB_USER} \
-                    -Fc ${ODOO17_DB} > ${ODOO17_DUMP}
-
-                ls -lh ${ODOO17_DUMP}
+                    echo "Dumping Odoo 17 database..."
+                    docker exec -i ${ODOO17_DB_HOST} pg_dump \
+                        -U ${DB_USER} -F c -b -v -f /tmp/${ODOO17_DUMP} ${ODOO17_DB}
+                    docker cp ${ODOO17_DB_HOST}:/tmp/${ODOO17_DUMP} ./
+                    ls -lh ${ODOO17_DUMP}
                 '''
             }
         }
 
-        /* =======================
-           MID PIPELINE CLEANUP
-        ======================= */
         stage('Mid-Pipeline Disk Cleanup 🧹') {
             steps {
                 sh '''
-                echo "Stopping Odoo 17..."
-                docker compose -f docker/docker-compose-odoo17.yml down -v
+                    echo "Stopping Odoo 17 and freeing disk..."
+                    docker compose -f docker/docker-compose-odoo17.yml down -v
+                    docker system prune -af --volumes
+                    df -h
+                '''
+            }
+        }
 
-                docker system prune -af --volumes || true
-                df -h
+        stage('Prepare OpenUpgrade 18') {
+            steps {
+                sh '''
+                    if [ ! -d docker/OpenUpgrade-18.0 ]; then
+                        git clone --depth 1 --branch 18.0 \
+https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
+                    fi
+
+                    mkdir -p docker/OpenUpgrade-18.0/addons
+                    rsync -a --delete \
+                      docker/OpenUpgrade-18.0/openupgrade_framework/ \
+                      docker/OpenUpgrade-18.0/addons/openupgrade_framework/
                 '''
             }
         }
@@ -111,69 +138,67 @@ pipeline {
             }
         }
 
-        stage('Wait for Odoo 18 DB') {
-            steps {
-                sh '''
-                until docker exec ${ODOO18_DB_CONTAINER} pg_isready -U ${DB_USER}; do
-                    sleep 5
-                done
-                '''
-            }
-        }
-
-        stage('Drop & Recreate Odoo 18 DB (SAFE)') {
-            steps {
-                sh '''
-                echo "Dropping existing Odoo 18 DB safely..."
-
-                docker exec ${ODOO18_DB_CONTAINER} psql -U ${DB_USER} -d postgres -c "
-                SELECT pg_terminate_backend(pid)
-                FROM pg_stat_activity
-                WHERE datname = '${ODOO18_DB}';
-                "
-
-                docker exec ${ODOO18_DB_CONTAINER} psql -U ${DB_USER} -d postgres \
-                    -c "DROP DATABASE IF EXISTS ${ODOO18_DB};"
-
-                docker exec ${ODOO18_DB_CONTAINER} psql -U ${DB_USER} -d postgres \
-                    -c "CREATE DATABASE ${ODOO18_DB} OWNER ${DB_USER};"
-                '''
-            }
-        }
-
         stage('Restore DB into Odoo 18') {
             steps {
                 sh '''
-                echo "Restoring dump into Odoo 18..."
-                docker cp ${ODOO17_DUMP} ${ODOO18_DB_CONTAINER}:/tmp/${ODOO17_DUMP}
+                    echo "Waiting for Odoo 18 DB..."
+                    until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
 
-                docker exec ${ODOO18_DB_CONTAINER} pg_restore \
-                    -U ${DB_USER} \
-                    -d ${ODOO18_DB} \
-                    --no-owner \
-                    --no-acl \
-                    /tmp/${ODOO17_DUMP}
+                    echo "Copying dump to Odoo 18 DB container..."
+                    docker cp ${ODOO17_DUMP} ${ODOO18_DB_HOST}:/tmp/${ODOO17_DUMP}
+
+                    echo "Restoring dump into Odoo 18 DB..."
+                    docker exec -i ${ODOO18_DB_HOST} pg_restore \
+                        -U ${DB_USER} -d ${ODOO18_DB} --clean --if-exists --no-owner --no-acl /tmp/${ODOO17_DUMP}
                 '''
             }
         }
 
-        /* =======================
-           FINAL CLEANUP
-        ======================= */
-        stage('Final Cleanup 🧹') {
+        stage('Run OpenUpgrade Migration - Base First ✅') {
+            options { timeout(time: 30, unit: 'MINUTES') }
             steps {
                 sh '''
-                rm -f ${ODOO17_DUMP}
-                docker system prune -f || true
-                df -h
+                    set -e
+
+                    echo "Installing openupgradelib..."
+                    docker exec -u 0 odoo18-web pip install openupgradelib --break-system-packages
+
+                    echo "Running base migration..."
+                    docker exec odoo18-web odoo \
+                        -d ${ODOO18_DB} \
+                        --db_host=${ODOO18_DB_HOST} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
+                        --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
+                        --load=base,web,openupgrade_framework \
+                        -u base --without-demo=all --stop-after-init
                 '''
             }
         }
+
+        stage('Run OpenUpgrade Migration - Remaining Modules ✅') {
+            options { timeout(time: 30, unit: 'MINUTES' }
+            steps {
+                sh '''
+                    echo "Upgrading remaining modules..."
+                    docker exec odoo18-web odoo \
+                        -d ${ODOO18_DB} \
+                        --db_host=${ODOO18_DB_HOST} \
+                        --db_user=${DB_USER} \
+                        --db_password=${DB_PASSWORD} \
+                        --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
+                        --load=base,web,openupgrade_framework \
+                        -u sale,purchase,stock,account,mail \
+                        --without-demo=all --stop-after-init
+                '''
+            }
+        }
+
     }
 
     post {
         success {
-            echo "✅ Odoo 17 → Odoo 18 DB migration completed successfully"
+            echo "✅ Odoo 17 → 18 migration completed successfully"
         }
         failure {
             echo "❌ Migration failed — check Jenkins logs"
