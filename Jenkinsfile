@@ -73,8 +73,6 @@ pipeline {
             }
         }
 
-        /* ===== FREE SPACE AFTER DUMP ===== */
-
         stage('Stop & Purge Odoo 17 (FREE DISK)') {
             steps {
                 sh '''
@@ -93,6 +91,7 @@ pipeline {
         stage('Prepare OpenUpgrade 18') {
             steps {
                 sh '''
+                  # Clone full OpenUpgrade repo if not exists
                   if [ ! -d docker/OpenUpgrade-18.0 ]; then
                     echo "Cloning full OpenUpgrade repo for 18.0..."
                     git clone --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
@@ -104,7 +103,7 @@ pipeline {
                     cd -
                   fi
 
-                  # Find the path to openupgrade_framework dynamically
+                  # Find openupgrade_framework folder
                   FRAMEWORK_PATH=$(find docker/OpenUpgrade-18.0 -type d -name "openupgrade_framework" | head -n 1)
                   if [ -z "$FRAMEWORK_PATH" ]; then
                     echo "❌ ERROR: openupgrade_framework folder not found!"
@@ -112,9 +111,12 @@ pipeline {
                   fi
                   echo "Found openupgrade_framework at: $FRAMEWORK_PATH"
 
-                  # Create addons folder and copy framework
+                  # Prepare addons folder before starting Odoo 18
                   mkdir -p docker/OpenUpgrade-18.0/addons/openupgrade_framework
                   rsync -a --delete "$FRAMEWORK_PATH/" docker/OpenUpgrade-18.0/addons/openupgrade_framework/
+
+                  # Verify the folder has files
+                  ls -l docker/OpenUpgrade-18.0/addons
                 '''
             }
         }
@@ -124,6 +126,7 @@ pipeline {
         stage('Start Odoo 18') {
             steps {
                 sh '''
+                  # Start Odoo 18 container AFTER OpenUpgrade addons exist
                   docker compose -f docker/docker-compose-odoo18.yml up -d
                   until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
                 '''
@@ -165,24 +168,15 @@ BEGIN;
 
 SET session_replication_role = replica;
 
-DELETE FROM ir_ui_view
-WHERE inherit_id IS NOT NULL;
-
-DELETE FROM ir_ui_view
-WHERE id IN (
+DELETE FROM ir_ui_view WHERE inherit_id IS NOT NULL;
+DELETE FROM ir_ui_view WHERE id IN (
     SELECT res_id FROM ir_model_data
     WHERE model='ir.ui.view' AND module='base'
 );
-
-DELETE FROM ir_model_data
-WHERE model='ir.ui.view' AND module='base';
-
-DELETE FROM res_lang
-WHERE name IN ('Serbian (Cyrillic) / српски',
-               'Belarusian / Беларусьская мова');
+DELETE FROM ir_model_data WHERE model='ir.ui.view' AND module='base';
+DELETE FROM res_lang WHERE name IN ('Serbian (Cyrillic) / српски','Belarusian / Беларусьская мова');
 
 COMMIT;
-
 SET session_replication_role = DEFAULT;
 SQL
                 '''
@@ -194,15 +188,10 @@ SQL
         stage('OpenUpgrade - Base Module') {
             steps {
                 sh '''
-                  docker exec odoo18-web odoo \
-                    -d ${ODOO18_DB} \
-                    --db_host=${ODOO18_DB_HOST} \
-                    --db_user=${DB_USER} \
-                    --db_password=${DB_PASSWORD} \
+                  docker exec odoo18-web odoo -d ${ODOO18_DB} \
+                    --db_host=${ODOO18_DB_HOST} --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
                     --addons-path=/mnt/openupgrade_addons,/usr/lib/python3/dist-packages/odoo/addons \
-                    -u base \
-                    --without-demo=all \
-                    --stop-after-init
+                    -u base --without-demo=all --stop-after-init
                 '''
             }
         }
@@ -210,15 +199,10 @@ SQL
         stage('OpenUpgrade - Remaining Modules') {
             steps {
                 sh '''
-                  docker exec odoo18-web odoo \
-                    -d ${ODOO18_DB} \
-                    --db_host=${ODOO18_DB_HOST} \
-                    --db_user=${DB_USER} \
-                    --db_password=${DB_PASSWORD} \
+                  docker exec odoo18-web odoo -d ${ODOO18_DB} \
+                    --db_host=${ODOO18_DB_HOST} --db_user=${DB_USER} --db_password=${DB_PASSWORD} \
                     --addons-path=/mnt/openupgrade_addons,/usr/lib/python3/dist-packages/odoo/addons \
-                    -u web,mail,account,sale,purchase,stock \
-                    --without-demo=all \
-                    --stop-after-init
+                    -u web,mail,account,sale,purchase,stock --without-demo=all --stop-after-init
                 '''
             }
         }
