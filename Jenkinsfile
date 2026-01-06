@@ -81,7 +81,7 @@ pipeline {
                     echo "Dumping Odoo 17 database..."
                     docker exec -i ${ODOO17_DB_HOST} pg_dump \
                         -U ${DB_USER} -F c -b -v -f /tmp/${ODOO17_DUMP} ${ODOO17_DB}
-                    docker cp ${ODOO17_DB_HOST}:/tmp/${ODOO17_DUMP} ./
+                    docker cp ${ODOO17_DB_HOST}:/tmp/${ODOO17_DUMP} ./ 
                     ls -lh ${ODOO17_DUMP}
                 '''
             }
@@ -102,8 +102,7 @@ pipeline {
             steps {
                 sh '''
                     if [ ! -d docker/OpenUpgrade-18.0 ]; then
-                        git clone --depth 1 --branch 18.0 \
-https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
+                        git clone --depth 1 --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                     fi
 
                     mkdir -p docker/OpenUpgrade-18.0/addons
@@ -123,11 +122,19 @@ https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
         stage('Create Clean Odoo 18 DB') {
             steps {
                 sh '''
+                    echo "Waiting for Odoo 18 DB to be ready..."
+                    until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do
+                        echo "DB not ready yet, sleeping 5s..."
+                        sleep 5
+                    done
+
                     echo "Dropping old Odoo 18 database if exists..."
                     docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -c "DROP DATABASE IF EXISTS ${ODOO18_DB};"
 
                     echo "Creating a fresh Odoo 18 database..."
                     docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -c "CREATE DATABASE ${ODOO18_DB} OWNER ${DB_USER};"
+
+                    echo "✅ Odoo 18 DB is clean and ready."
                 '''
             }
         }
@@ -135,8 +142,11 @@ https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
         stage('Restore DB into Odoo 18') {
             steps {
                 sh '''
-                    echo "Waiting for Odoo 18 DB..."
-                    until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do sleep 5; done
+                    echo "Waiting for Odoo 18 DB to be ready..."
+                    until docker exec ${ODOO18_DB_HOST} pg_isready -U ${DB_USER}; do
+                        echo "DB not ready yet, sleeping 5s..."
+                        sleep 5
+                    done
 
                     echo "Copying dump to Odoo 18 DB container..."
                     docker cp ${ODOO17_DUMP} ${ODOO18_DB_HOST}:/tmp/${ODOO17_DUMP}
@@ -144,6 +154,8 @@ https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
                     echo "Restoring dump into Odoo 18 DB..."
                     docker exec -i ${ODOO18_DB_HOST} pg_restore \
                         -U ${DB_USER} -d ${ODOO18_DB} --no-owner --no-acl /tmp/${ODOO17_DUMP}
+
+                    echo "✅ Restore completed."
                 '''
             }
         }
