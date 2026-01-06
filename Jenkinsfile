@@ -93,6 +93,7 @@ pipeline {
         stage('Prepare OpenUpgrade 18') {
             steps {
                 sh '''
+                  # Clone full OpenUpgrade repo if not exists
                   if [ ! -d docker/OpenUpgrade-18.0 ]; then
                     echo "Cloning full OpenUpgrade repo for 18.0..."
                     git clone --branch 18.0 https://github.com/OCA/OpenUpgrade.git docker/OpenUpgrade-18.0
@@ -104,7 +105,7 @@ pipeline {
                     cd -
                   fi
 
-                  # Find the path to openupgrade_framework dynamically
+                  # Find openupgrade_framework folder
                   FRAMEWORK_PATH=$(find docker/OpenUpgrade-18.0 -type d -name "openupgrade_framework" | head -n 1)
                   if [ -z "$FRAMEWORK_PATH" ]; then
                     echo "❌ ERROR: openupgrade_framework folder not found!"
@@ -112,9 +113,14 @@ pipeline {
                   fi
                   echo "Found openupgrade_framework at: $FRAMEWORK_PATH"
 
-                  # Create addons folder and copy framework
+                  # Ensure addons folder exists
                   mkdir -p docker/OpenUpgrade-18.0/addons/openupgrade_framework
+
+                  # Copy framework into addons
                   rsync -a --delete "$FRAMEWORK_PATH/" docker/OpenUpgrade-18.0/addons/openupgrade_framework/
+
+                  # Verify
+                  ls -lh docker/OpenUpgrade-18.0/addons
                 '''
             }
         }
@@ -163,32 +169,25 @@ pipeline {
                   docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} -v ON_ERROR_STOP=1 <<SQL
 BEGIN;
 
--- Disable FK temporarily
 SET session_replication_role = replica;
 
--- Delete child views first
-DELETE FROM ir_ui_view
-WHERE inherit_id IS NOT NULL;
+DELETE FROM ir_ui_view WHERE inherit_id IS NOT NULL;
 
--- Delete base views
 DELETE FROM ir_ui_view
 WHERE id IN (
     SELECT res_id FROM ir_model_data
     WHERE model='ir.ui.view' AND module='base'
 );
 
--- Delete corresponding ir_model_data entries
 DELETE FROM ir_model_data
 WHERE model='ir.ui.view' AND module='base';
 
--- Delete problematic duplicate languages
 DELETE FROM res_lang
 WHERE name IN ('Serbian (Cyrillic) / српски',
                'Belarusian / Беларусьская мова');
 
 COMMIT;
 
--- Re-enable FK constraints
 SET session_replication_role = DEFAULT;
 SQL
                 '''
