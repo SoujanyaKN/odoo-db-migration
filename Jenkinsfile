@@ -101,12 +101,20 @@ pipeline {
                     cd docker/OpenUpgrade-18.0
                     git fetch origin 18.0
                     git reset --hard origin/18.0
+                    cd -
                   fi
 
-                  mkdir -p docker/OpenUpgrade-18.0/addons
-                  rsync -a --delete \
-                    docker/OpenUpgrade-18.0/openupgrade_framework/ \
-                    docker/OpenUpgrade-18.0/addons/openupgrade_framework/
+                  # Find the path to openupgrade_framework dynamically
+                  FRAMEWORK_PATH=$(find docker/OpenUpgrade-18.0 -type d -name "openupgrade_framework" | head -n 1)
+                  if [ -z "$FRAMEWORK_PATH" ]; then
+                    echo "❌ ERROR: openupgrade_framework folder not found!"
+                    exit 1
+                  fi
+                  echo "Found openupgrade_framework at: $FRAMEWORK_PATH"
+
+                  # Create addons folder and copy framework
+                  mkdir -p docker/OpenUpgrade-18.0/addons/openupgrade_framework
+                  rsync -a --delete "$FRAMEWORK_PATH/" docker/OpenUpgrade-18.0/addons/openupgrade_framework/
                 '''
             }
         }
