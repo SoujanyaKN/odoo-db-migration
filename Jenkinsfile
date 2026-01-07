@@ -66,7 +66,6 @@ pipeline {
         stage('Dump Odoo 17 DB') {
             steps {
                 sh '''
-                  echo "Dumping Odoo 17 database..."
                   docker exec -i ${ODOO17_DB_HOST} pg_dump -U ${DB_USER} -F c ${ODOO17_DB} > ${ODOO17_DUMP}
                   ls -lh ${ODOO17_DUMP}
                 '''
@@ -117,9 +116,9 @@ pipeline {
             steps {
                 sh '''
                   docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d postgres <<EOF
-                  DROP DATABASE IF EXISTS ${ODOO18_DB};
-                  CREATE DATABASE ${ODOO18_DB} OWNER ${DB_USER};
-                  EOF
+DROP DATABASE IF EXISTS ${ODOO18_DB};
+CREATE DATABASE ${ODOO18_DB} OWNER ${DB_USER};
+EOF
                 '''
             }
         }
@@ -127,7 +126,6 @@ pipeline {
         stage('Restore Odoo 17 Dump into Odoo 18 DB') {
             steps {
                 sh '''
-                  echo "Restoring dump into Odoo 18 DB..."
                   cat ${ODOO17_DUMP} | docker exec -i ${ODOO18_DB_HOST} pg_restore \
                     -U ${DB_USER} \
                     -d ${ODOO18_DB} \
@@ -137,34 +135,19 @@ pipeline {
             }
         }
 
-        /* ================= OPENUPGRADE PRE-CLEAN ================= */
+        /* ========== 🔥 CRITICAL FIX: VIEW NORMALIZATION 🔥 ========== */
 
-        stage('OpenUpgrade - Pre-clean Base Views & Languages') {
+        stage('Normalize Views for Odoo 18 (list → tree)') {
             steps {
                 sh '''
                   docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
-BEGIN;
-SET session_replication_role = replica;
+UPDATE ir_ui_view
+SET arch_db = regexp_replace(arch_db, '<list', '<tree', 'g')
+WHERE arch_db LIKE '%<list%';
 
-DELETE FROM ir_ui_view WHERE inherit_id IS NOT NULL;
-
-DELETE FROM ir_ui_view
-WHERE id IN (
-    SELECT res_id FROM ir_model_data
-    WHERE model='ir.ui.view' AND module='base'
-);
-
-DELETE FROM ir_model_data
-WHERE model='ir.ui.view' AND module='base';
-
-DELETE FROM res_lang
-WHERE name IN (
-    'Serbian (Cyrillic) / српски',
-    'Belarusian / Беларусьская мова'
-);
-
-COMMIT;
-SET session_replication_role = DEFAULT;
+UPDATE ir_ui_view
+SET arch_db = regexp_replace(arch_db, '</list>', '</tree>', 'g')
+WHERE arch_db LIKE '%</list>%';
 SQL
                 '''
             }
@@ -180,7 +163,7 @@ SQL
                     --db_host=${ODOO18_DB_HOST} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
-                    --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
+                    --addons-path=/mnt/openupgrade_addons,/usr/lib/python3/dist-packages/odoo/addons \
                     -u base \
                     --without-demo=all \
                     --stop-after-init
@@ -196,7 +179,7 @@ SQL
                     --db_host=${ODOO18_DB_HOST} \
                     --db_user=${DB_USER} \
                     --db_password=${DB_PASSWORD} \
-                    --addons-path=/usr/lib/python3/dist-packages/odoo/addons,/mnt/openupgrade_addons \
+                    --addons-path=/mnt/openupgrade_addons,/usr/lib/python3/dist-packages/odoo/addons \
                     -u web,mail,account,sale,purchase,stock \
                     --without-demo=all \
                     --stop-after-init
@@ -209,7 +192,7 @@ SQL
                 sh '''
                   docker ps
                   df -h
-                  echo "✅ Migration finished. Start Odoo 18 normally to verify UI."
+                  echo "✅ Migration finished. Start Odoo 18 UI to verify."
                 '''
             }
         }
