@@ -135,13 +135,12 @@ EOF
             }
         }
 
-        /* ========== 🔥 CRITICAL FIX: VIEW NORMALIZATION 🔥 ========== */
+        /* ========== 🔥 FIX 1: LIST → TREE 🔥 ========== */
 
-        stage('Normalize ALL Views for Odoo 18 (list → tree)') {
+        stage('Normalize Views (list → tree)') {
             steps {
                 sh '''
                   docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
--- Universal fix for <list> → <tree>
 UPDATE ir_ui_view
 SET arch_db = regexp_replace(arch_db, '<list', '<tree', 'g')
 WHERE arch_db LIKE '%<list%';
@@ -149,14 +148,20 @@ WHERE arch_db LIKE '%<list%';
 UPDATE ir_ui_view
 SET arch_db = regexp_replace(arch_db, '</list>', '</tree>', 'g')
 WHERE arch_db LIKE '%</list>%';
+SQL
+                '''
+            }
+        }
 
--- Optional: remove duplicate res_lang entries (fixes Belarusian/Serbian errors)
-DELETE FROM res_lang
-WHERE name IN ('Serbian (Cyrillic) / српски', 'Belarusian / Беларусьская мова')
-AND id NOT IN (
-    SELECT MIN(id) FROM res_lang
-    GROUP BY name
-);
+        /* ========== 🔥 FIX 2: RES_LANG DUPLICATES 🔥 ========== */
+
+        stage('Remove res_lang duplicates BEFORE OpenUpgrade') {
+            steps {
+                sh '''
+                  docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
+DELETE FROM res_lang a
+USING res_lang b
+WHERE a.id > b.id AND a.name = b.name;
 SQL
                 '''
             }
