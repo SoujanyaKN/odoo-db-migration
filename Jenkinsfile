@@ -135,56 +135,13 @@ EOF
             }
         }
 
-        /* ================= 🔥 CRITICAL OPENUPGRADE PRE-CLEAN 🔥 ================= */
+        /* ========== 🔥 CRITICAL FIX: VIEW NORMALIZATION 🔥 ========== */
 
-        stage('OpenUpgrade - Pre-clean Base Data (Languages & Views)') {
-            steps {
-                sh '''
-                  echo "🧹 Cleaning conflicting base data before OpenUpgrade..."
-
-                  docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
-BEGIN;
-SET session_replication_role = replica;
-
--- Remove known conflicting languages
-DELETE FROM res_lang
-WHERE name IN (
-    'Serbian (Cyrillic) / српски',
-    'Belarusian / Беларуская мова',
-    'Belarusian / Беларусьская мова'
-);
-
--- Remove any duplicate language names (safety net)
-DELETE FROM res_lang a
-USING res_lang b
-WHERE a.id > b.id
-  AND a.name = b.name;
-
--- Clean problematic base views
-DELETE FROM ir_ui_view WHERE inherit_id IS NOT NULL;
-
-DELETE FROM ir_ui_view
-WHERE id IN (
-    SELECT res_id FROM ir_model_data
-    WHERE model='ir.ui.view' AND module='base'
-);
-
-DELETE FROM ir_model_data
-WHERE model='ir.ui.view' AND module='base';
-
-COMMIT;
-SET session_replication_role = DEFAULT;
-SQL
-                '''
-            }
-        }
-
-        /* ========== VIEW NORMALIZATION (KEEP AS YOU ADDED) ========== */
-
-        stage('Normalize Views for Odoo 18 (list → tree)') {
+        stage('Normalize ALL Views for Odoo 18 (list → tree)') {
             steps {
                 sh '''
                   docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
+-- Universal fix for <list> → <tree>
 UPDATE ir_ui_view
 SET arch_db = regexp_replace(arch_db, '<list', '<tree', 'g')
 WHERE arch_db LIKE '%<list%';
@@ -192,6 +149,14 @@ WHERE arch_db LIKE '%<list%';
 UPDATE ir_ui_view
 SET arch_db = regexp_replace(arch_db, '</list>', '</tree>', 'g')
 WHERE arch_db LIKE '%</list>%';
+
+-- Optional: remove duplicate res_lang entries (fixes Belarusian/Serbian errors)
+DELETE FROM res_lang
+WHERE name IN ('Serbian (Cyrillic) / српски', 'Belarusian / Беларусьская мова')
+AND id NOT IN (
+    SELECT MIN(id) FROM res_lang
+    GROUP BY name
+);
 SQL
                 '''
             }
