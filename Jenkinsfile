@@ -157,23 +157,30 @@ SQL
 
         /* ========== 🔥 FIX 2: RES_LANG DUPLICATES 🔥 ========== */
 
-        stage('Remove res_lang duplicates BEFORE OpenUpgrade') {
-            steps {
-                sh '''
-                  docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
--- Remove duplicate language entries (keep one)
+stage('Remove res_lang duplicates BEFORE OpenUpgrade') {
+    steps {
+        sh '''
+          docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
+-- Remove exact duplicate language entries (keep one)
 DELETE FROM res_lang a
 USING res_lang b
 WHERE a.id > b.id
   AND a.name = b.name
-  AND a.code <> b.code;
+  AND a.code = b.code;
 
--- Clean up space
+-- Free up space
 VACUUM FULL res_lang;
+
+-- Optional: log remaining duplicates (for verification)
+SELECT name, code, COUNT(*) AS cnt
+FROM res_lang
+GROUP BY name, code
+HAVING COUNT(*) > 1;
 SQL
-                '''
-            }
-        }
+        '''
+    }
+}
+
 
         /* ================= OPENUPGRADE RUN ================= */
 
