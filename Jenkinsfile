@@ -112,6 +112,8 @@ pipeline {
             }
         }
 
+        /* ================= CLEAN ODOO 18 DB ================= */
+
         stage('Recreate EMPTY Odoo 18 DB') {
             steps {
                 sh '''
@@ -159,6 +161,7 @@ SQL
             steps {
                 sh '''
                   docker exec -i ${ODOO18_DB_HOST} psql -U ${DB_USER} -d ${ODOO18_DB} <<SQL
+-- Remove duplicate languages
 DELETE FROM res_lang a
 USING res_lang b
 WHERE a.id > b.id AND a.name = b.name;
